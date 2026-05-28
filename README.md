@@ -68,6 +68,7 @@ Windows 压缩包内包含：
 |---|---|
 | `build/windows-amd64/kaf-cli.exe` | 64 位 CLI |
 | `build/windows-amd64/kaf-cli-gui.exe` | 64 位 GUI（无控制台窗口） |
+| `build/windows-amd64/kaf-cli-wails.exe` | 64 位 Wails GUI 原型（环境满足时构建） |
 | `build/windows-386/kaf-cli.exe` | 32 位 CLI（无 GUI） |
 
 日常使用可将 `build/windows-amd64/` 下的 exe 复制到工作目录，或直接把 txt 拖到该目录中的 `kaf-cli.exe` 上。

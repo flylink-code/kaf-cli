@@ -15,17 +15,41 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 var (
 	chapterKeyReg       = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
 	filenameMetaReg     = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt`)
 	partDivisionLabelRe = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+部$`)
+	roundLabelRe        = regexp.MustCompile(`^(第?[0-9一二三四五六七八九十零〇百千两]+回合|【?第?[0-9一二三四五六七八九十零〇百千两]+回合结束|【?双方行棋，第?[0-9一二三四五六七八九十零〇百千两]+回合)`)
 )
 
 // isPartDivisionLabel 判断是否为「第一部」「第三部」等正文分篇行（非目录章节）。
 func isPartDivisionLabel(line string) bool {
 	return partDivisionLabelRe.MatchString(line)
+}
+
+func isRoundLabel(line string) bool {
+	return roundLabelRe.MatchString(strings.TrimSpace(line))
+}
+
+func isFalsePositiveOrdinalTitle(line string) bool {
+	line = normalizeLineQuotes(strings.TrimSpace(line))
+	if line == "" {
+		return false
+	}
+	falsePositiveRegs := []*regexp.Regexp{
+		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+节课`),
+		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章·`),
+		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章[^「“『【\[\(（《< ]`),
+	}
+	for _, re := range falsePositiveRegs {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveOutputPath 解析输出路径为绝对路径；仅文件名时写入 txt 所在目录。
@@ -313,6 +337,375 @@ func dedupTitleSections(sections []Section) []Section {
 				continue
 			}
 		}
+		result = append(result, sec)
+	}
+	return result
+}
+
+func normalizeChapterContent(content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	content = normalizeLineQuotes(content)
+	replacer := strings.NewReplacer(
+		htmlPStart, "\n",
+		htmlPEnd, "",
+		"\r", "",
+		"\u3000", "",
+		" ", "",
+		"\t", "",
+	)
+	lines := strings.Split(replacer.Replace(content), "\n")
+	normalized := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		normalized = append(normalized, line)
+	}
+	return strings.Join(normalized, "\n")
+}
+
+func compactDedupText(text string) string {
+	text = normalizeLineQuotes(strings.TrimSpace(strings.ToLower(text)))
+	if text == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"\r", "",
+		"\n", "",
+		"\t", "",
+		" ", "",
+		"\u3000", "",
+		"“", "",
+		"”", "",
+		"‘", "",
+		"’", "",
+		"「", "",
+		"」", "",
+		"『", "",
+		"』", "",
+		"【", "",
+		"】", "",
+		"（", "",
+		"）", "",
+		"(", "",
+		")", "",
+		"《", "",
+		"》", "",
+		"·", "",
+		"—", "",
+		"-", "",
+		"…", "",
+		"，", "",
+		"。", "",
+		"：", "",
+		":", "",
+		"；", "",
+		";", "",
+		"、", "",
+		"！", "",
+		"!", "",
+		"？", "",
+		"?", "",
+		".", "",
+		",", "",
+	)
+	return replacer.Replace(text)
+}
+
+func comparableDedupRune(r rune) (rune, bool) {
+	switch r {
+	case '\r', '\n', '\t', ' ', '\u3000',
+		'“', '”', '‘', '’', '「', '」', '『', '』',
+		'【', '】', '（', '）', '(', ')', '《', '》',
+		'·', '—', '-', '…',
+		'，', '。', '：', ':', '；', ';', '、',
+		'！', '!', '？', '?', '.', ',':
+		return 0, false
+	}
+	return unicode.ToLower(r), true
+}
+
+func trimLeadingTitlePrefix(title, line string) (string, bool) {
+	title = normalizeLineQuotes(strings.TrimSpace(title))
+	line = normalizeLineQuotes(strings.TrimSpace(line))
+	if title == "" || line == "" {
+		return line, false
+	}
+	if key := chapterKey(title); key == "" || chapterKey(line) != key {
+		return line, false
+	}
+
+	titleRunes := []rune(title)
+	lineRunes := []rune(line)
+	titleIdx := 0
+	end := 0
+
+	for i, r := range lineRunes {
+		lineCmp, ok := comparableDedupRune(r)
+		if !ok {
+			continue
+		}
+		for titleIdx < len(titleRunes) {
+			titleCmp, titleOk := comparableDedupRune(titleRunes[titleIdx])
+			titleIdx++
+			if !titleOk {
+				continue
+			}
+			if titleCmp != lineCmp {
+				return line, false
+			}
+			end = i + 1
+			break
+		}
+		if titleIdx >= len(titleRunes) {
+			break
+		}
+	}
+
+	for titleIdx < len(titleRunes) {
+		if _, ok := comparableDedupRune(titleRunes[titleIdx]); ok {
+			return line, false
+		}
+		titleIdx++
+	}
+	if end == 0 {
+		return line, false
+	}
+
+	rest := strings.TrimSpace(string(lineRunes[end:]))
+	rest = strings.TrimLeft(rest, `·"“”'‘’「」『』】）》)）]`)
+	return strings.TrimSpace(rest), true
+}
+
+func dedupContentVariants(text string) []string {
+	text = normalizeChapterContent(text)
+	if text == "" {
+		return nil
+	}
+	var variants []string
+	seen := make(map[string]struct{})
+	add := func(s string) {
+		s = compactDedupText(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		variants = append(variants, s)
+	}
+	add(text)
+	if trimmed := trimLeadingShortSentence(text); trimmed != "" && trimmed != text {
+		add(trimmed)
+	}
+	return variants
+}
+
+func trimLeadingShortSentence(text string) string {
+	lines := strings.Split(text, "\n")
+	if len(lines) == 0 {
+		return text
+	}
+	first := strings.TrimSpace(lines[0])
+	if first == "" {
+		return text
+	}
+	runes := []rune(first)
+	limit := len(runes)
+	if limit > 24 {
+		limit = 24
+	}
+	for i := 0; i < limit; i++ {
+		switch runes[i] {
+		case '。', '！', '？', '!', '?':
+			rest := strings.TrimSpace(string(runes[i+1:]))
+			if rest == "" {
+				return strings.Join(lines[1:], "\n")
+			}
+			lines[0] = rest
+			return strings.Join(lines, "\n")
+		}
+	}
+	return text
+}
+
+func commonPrefixRuneCount(a, b string) int {
+	ar := []rune(a)
+	br := []rune(b)
+	limit := len(ar)
+	if len(br) < limit {
+		limit = len(br)
+	}
+	count := 0
+	for count < limit && ar[count] == br[count] {
+		count++
+	}
+	return count
+}
+
+func titlesLikelyRepeated(a, b string) bool {
+	ta := compactDedupText(a)
+	tb := compactDedupText(b)
+	if ta == "" || tb == "" {
+		return false
+	}
+	if ta == tb {
+		return true
+	}
+	shorter, longer := ta, tb
+	if len([]rune(shorter)) > len([]rune(longer)) {
+		shorter, longer = longer, shorter
+	}
+	if len([]rune(shorter)) >= 6 && strings.Contains(longer, shorter) {
+		return true
+	}
+	return commonPrefixRuneCount(ta, tb) >= 8
+}
+
+func contentsLikelyRepeated(a, b string) bool {
+	variantsA := dedupContentVariants(a)
+	variantsB := dedupContentVariants(b)
+	for _, ca := range variantsA {
+		for _, cb := range variantsB {
+			if ca == cb {
+				return true
+			}
+			prefix := commonPrefixRuneCount(ca, cb)
+			shorter := len([]rune(ca))
+			if len([]rune(cb)) < shorter {
+				shorter = len([]rune(cb))
+			}
+			if shorter == 0 {
+				continue
+			}
+			if shorter <= 80 {
+				if prefix >= 20 && float64(prefix)/float64(shorter) >= 0.85 {
+					return true
+				}
+				continue
+			}
+			if prefix >= 80 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func looksLikeInlineChapterLine(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	key := chapterKey(line)
+	if key == "" {
+		return false
+	}
+	for _, mark := range []string{"。", "！", "？", "!", "?"} {
+		if idx := strings.Index(line, mark); idx >= 0 && idx+len(mark) < len(line) {
+			rest := strings.TrimSpace(line[idx+len(mark):])
+			rest = strings.TrimSpace(strings.Trim(rest, `"'”’」』】）》)）]》·`))
+			if rest != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stripLeadingTitleLine(title, content string) string {
+	title = strings.TrimSpace(title)
+	content = normalizeChapterContent(content)
+	if title == "" || content == "" {
+		return content
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) == 0 {
+		return content
+	}
+	first := strings.TrimSpace(lines[0])
+	if trimmed, ok := trimLeadingTitlePrefix(title, first); ok {
+		if trimmed == "" {
+			return strings.Join(lines[1:], "\n")
+		}
+		lines[0] = trimmed
+		return strings.Join(lines, "\n")
+	}
+	if first == title || strings.HasPrefix(first, title) {
+		trimmed := strings.TrimSpace(strings.TrimPrefix(first, title))
+		if trimmed == "" {
+			return strings.Join(lines[1:], "\n")
+		}
+		lines[0] = trimmed
+		return strings.Join(lines, "\n")
+	}
+	if alt := strings.Replace(title, "「", "“", 1); alt != title {
+		alt = strings.Replace(alt, "」", "”", 1)
+		if first == alt || strings.HasPrefix(first, alt) {
+			trimmed := strings.TrimSpace(strings.TrimPrefix(first, alt))
+			if trimmed == "" {
+				return strings.Join(lines[1:], "\n")
+			}
+			lines[0] = trimmed
+			return strings.Join(lines, "\n")
+		}
+	}
+	if key := chapterKey(title); key != "" {
+		if firstKey := chapterKey(first); firstKey == key {
+			for _, mark := range []string{"？", "?", "。", "！", "!"} {
+				if idx := strings.Index(first, mark); idx >= 0 && idx+len(mark) < len(first) {
+					rest := strings.TrimSpace(first[idx+len(mark):])
+					rest = strings.TrimLeft(rest, `”"」』·`)
+					rest = strings.TrimSpace(rest)
+					if rest == "" {
+						return strings.Join(lines[1:], "\n")
+					}
+					lines[0] = rest
+					return strings.Join(lines, "\n")
+				}
+			}
+		}
+	}
+	return content
+}
+
+// dedupRepeatedSections 去掉后续整章重复内容：同章号且正文归一化后相同则保留第一次出现。
+func dedupRepeatedSections(sections []Section) []Section {
+	if len(sections) <= 1 {
+		return sections
+	}
+	seen := make(map[string][]Section)
+	result := make([]Section, 0, len(sections))
+	for _, sec := range sections {
+		key := chapterKey(sec.Title)
+		if key == "" {
+			result = append(result, sec)
+			continue
+		}
+		contentKey := normalizeChapterContent(sec.Content)
+		contentKey = stripLeadingTitleLine(sec.Title, contentKey)
+		if contentKey == "" {
+			result = append(result, sec)
+			continue
+		}
+		repeated := false
+		for _, prev := range seen[key] {
+			prevContentKey := normalizeChapterContent(prev.Content)
+			prevContentKey = stripLeadingTitleLine(prev.Title, prevContentKey)
+			if titlesLikelyRepeated(prev.Title, sec.Title) && contentsLikelyRepeated(prevContentKey, contentKey) {
+				repeated = true
+				break
+			}
+		}
+		if repeated {
+			continue
+		}
+		seen[key] = append(seen[key], sec)
 		result = append(result, sec)
 	}
 	return result

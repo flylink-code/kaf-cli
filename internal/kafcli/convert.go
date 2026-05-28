@@ -68,7 +68,7 @@ const (
 	mobiTtmlTitleStart = `<h3 style="text-align:%s;">`
 	htmlTitleEnd       = "</h3>"
 	VolumeMatch        = "^第[0-9一二三四五六七八九十零〇百千两 ]+卷"
-	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷]|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^\\d+、|^引子$|^楔子$|^章节目录|^章节|^序章"
+	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷]|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^引子$|^楔子$|^章节目录$|^章节$|^序章"
 	cssContent         = `
 .title {text-align:%s}
 .content {
@@ -316,9 +316,19 @@ func (book *Book) Parse() error {
 			addPart(&content, line)
 			continue
 		}
+		// 「第二回合」「双方行棋，第三回合」等过程标签，不作为章节
+		if isRoundLabel(line) {
+			if book.NormalizeQuotes {
+				line = normalizeLineQuotes(line)
+			}
+			addPart(&content, line)
+			continue
+		}
 		// 处理标题
 		if utf8.RuneCountInString(line) <= int(book.Max) &&
-			(book.Reg.MatchString(line) || book.VolumeReg.MatchString(line)) {
+			(book.Reg.MatchString(line) || book.VolumeReg.MatchString(line)) &&
+			!isFalsePositiveOrdinalTitle(line) &&
+			!looksLikeInlineChapterLine(line) {
 			if title == "" {
 				title = book.UnknowTitle
 			}
@@ -349,6 +359,7 @@ func (book *Book) Parse() error {
 	}
 	if book.DedupTitle {
 		contentList = dedupTitleSections(contentList)
+		contentList = dedupRepeatedSections(contentList)
 	}
 	var sectionList []Section
 	var volumeSection *Section
