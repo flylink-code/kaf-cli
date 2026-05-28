@@ -10,11 +10,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var chapterKeyReg = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷部]`)
 
 func parseLang(lang string) string {
 	if lang == "" {
@@ -197,4 +200,31 @@ func defaultBool(src, dst bool) bool {
 		return src
 	}
 	return dst
+}
+
+func chapterKey(title string) string {
+	m := chapterKeyReg.FindStringSubmatch(title)
+	if len(m) >= 2 {
+		return m[1]
+	}
+	return ""
+}
+
+// dedupTitleSections 去掉「目录行 + 正文标题行」重复：上一节无正文且与下一节章号相同则跳过。
+func dedupTitleSections(sections []Section) []Section {
+	if len(sections) <= 1 {
+		return sections
+	}
+	result := make([]Section, 0, len(sections))
+	for i := 0; i < len(sections); i++ {
+		sec := sections[i]
+		if i+1 < len(sections) && sec.Content == "" {
+			nextKey := chapterKey(sections[i+1].Title)
+			if key := chapterKey(sec.Title); key != "" && key == nextKey {
+				continue
+			}
+		}
+		result = append(result, sec)
+	}
+	return result
 }

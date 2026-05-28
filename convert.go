@@ -43,6 +43,7 @@ type Book struct {
 	Lang           string    // 设置语言
 	Out            string    // 输出文件名
 	Format         string    // 书籍格式
+	DedupTitle     bool      // 合并连续重复的章节目录行
 	SectionList    []Section // 章节
 	Decoder        *encoding.Decoder
 	PageStylesFile string
@@ -85,7 +86,8 @@ const (
 
 func NewBookSimple(filename string) (*Book, error) {
 	book := Book{
-		Filename: filename,
+		Filename:   filename,
+		DedupTitle: true,
 	}
 	book.SetDefault()
 	return &book, nil
@@ -112,6 +114,7 @@ func NewBookArgs() *Book {
 	flag.StringVar(&book.Format, "format", GetEnv("KAF_CLI_FORMAT", "all"), "书籍格式: all、epub、mobi、azw3。环境变量KAF_CLI_FORMAT可修改默认值")
 	flag.StringVar(&book.Out, "out", "", "输出文件名，不需要包含格式后缀")
 	flag.BoolVar(&book.Tips, "tips", true, "添加本软件教程")
+	flag.BoolVar(&book.DedupTitle, "dedup-title", true, "合并连续重复的章节目录行（同章号且上一节无正文）")
 	flag.Parse()
 	return &book
 }
@@ -307,6 +310,9 @@ func (book *Book) Parse() error {
 			Title:   title,
 			Content: content.String(),
 		})
+	}
+	if book.DedupTitle {
+		contentList = dedupTitleSections(contentList)
 	}
 	var sectionList []Section
 	var volumeSection *Section

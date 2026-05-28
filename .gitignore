@@ -1,9 +1,14 @@
 .idea
 *.epub
 *.mobi
+*.azw3
 *.txt
 *.exe
 *.tmp
 *.zio
 kaf-cli-*
 samples
+book
+task_plan.md
+findings.md
+progress.md
