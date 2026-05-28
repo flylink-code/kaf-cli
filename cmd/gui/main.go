@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	kafcli "github.com/ystyle/kaf-cli/internal/kafcli"
 	"github.com/rodrigocfd/windigo/co"
@@ -22,10 +24,12 @@ var (
 
 type appWindow struct {
 	wnd          *ui.Main
+	headerHint   *ui.Static
 	txtFile      *ui.Edit
 	coverFile    *ui.Edit
 	authorEdit   *ui.Edit
 	booknameLbl  *ui.Static
+	statusLbl    *ui.Static
 	formatCombo  *ui.ComboBox
 	chkDedup     *ui.CheckBox
 	chkTips      *ui.CheckBox
@@ -49,28 +53,67 @@ func main() {
 }
 
 func newAppWindow() *appWindow {
+	const (
+		leftPad     = 18
+		contentLeft = 28
+		labelWidth  = 78
+		gap         = 12
+		inputWidth  = 470
+		browseWidth = 96
+		rowHeight   = 28
+	)
+
+	fullWidth := inputWidth + browseWidth + gap
+	fieldLeft := contentLeft + labelWidth + gap
+	browseLeft := fieldLeft + inputWidth + gap
+	rightEdge := browseLeft + browseWidth
+
 	app := &appWindow{
 		wnd: ui.NewMain(
 			ui.OptsMain().
 				Title("kaf-cli 电子书转换").
-				Size(ui.Dpi(580, 600)).
+				Size(ui.Dpi(740, 760)).
 				ClassIconId(1).
 				DropFiles(true),
 		),
 	}
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("TXT 文件:").
-		Position(ui.Dpi(10, 18)))
+		Text("把 TXT 文件拖进来，或从下方选择文件开始转换。").
+		Position(ui.Dpi(leftPad, 18)).
+		Layout(ui.LAY_RESIZE_HOLD))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("转换素材").
+		Position(ui.Dpi(leftPad, 52)))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Position(ui.Dpi(leftPad, 78)).
+		Size(ui.DpiX(rightEdge-leftPad), 2).
+		Layout(ui.LAY_RESIZE_HOLD).
+		CtrlStyle(co.SS_ETCHEDHORZ))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("TXT 文件").
+		Position(ui.Dpi(contentLeft, 102)))
 
 	app.txtFile = ui.NewEdit(app.wnd, ui.OptsEdit().
-		Position(ui.Dpi(80, 15)).
-		Width(ui.DpiX(360)))
+		Position(ui.Dpi(fieldLeft, 98)).
+		Width(ui.DpiX(inputWidth)).
+		Height(ui.DpiY(rowHeight)).
+		Layout(ui.LAY_RESIZE_HOLD))
+	app.txtFile.On().EnChange(func() {
+		app.onTxtPathChanged()
+		app.persistConfig()
+	})
+	setCueBanner(app.txtFile.Hwnd(), "选择小说 TXT 文件，支持拖拽导入")
 
 	btnBrowseTxt := ui.NewButton(app.wnd, ui.OptsButton().
-		Text("浏览...").
-		Position(ui.Dpi(450, 13)).
-		Width(ui.DpiX(100)))
+		Text("选择 TXT").
+		Position(ui.Dpi(browseLeft, 98)).
+		Width(ui.DpiX(browseWidth)).
+		Height(ui.DpiY(rowHeight)).
+		Layout(ui.LAY_MOVE_HOLD))
 	btnBrowseTxt.On().BnClicked(func() {
 		path, ok := pickFile(app.wnd.Hwnd(), "选择 TXT 文件", []win.COMDLG_FILTERSPEC{
 			{Name: "文本文件 (*.txt)", Spec: "*.txt"},
@@ -82,17 +125,25 @@ func newAppWindow() *appWindow {
 	})
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("封面图片:").
-		Position(ui.Dpi(10, 53)))
+		Text("封面图片").
+		Position(ui.Dpi(contentLeft, 146)))
 
 	app.coverFile = ui.NewEdit(app.wnd, ui.OptsEdit().
-		Position(ui.Dpi(80, 50)).
-		Width(ui.DpiX(360)))
+		Position(ui.Dpi(fieldLeft, 142)).
+		Width(ui.DpiX(inputWidth)).
+		Height(ui.DpiY(rowHeight)).
+		Layout(ui.LAY_RESIZE_HOLD))
+	app.coverFile.On().EnChange(func() {
+		app.persistConfig()
+	})
+	setCueBanner(app.coverFile.Hwnd(), "可选，留空时会尝试自动匹配同名封面")
 
 	btnBrowseCover := ui.NewButton(app.wnd, ui.OptsButton().
-		Text("浏览...").
-		Position(ui.Dpi(450, 48)).
-		Width(ui.DpiX(100)))
+		Text("选择封面").
+		Position(ui.Dpi(browseLeft, 142)).
+		Width(ui.DpiX(browseWidth)).
+		Height(ui.DpiY(rowHeight)).
+		Layout(ui.LAY_MOVE_HOLD))
 	btnBrowseCover.On().BnClicked(func() {
 		path, ok := pickFile(app.wnd.Hwnd(), "选择封面图片", []win.COMDLG_FILTERSPEC{
 			{Name: "图片 (*.png;*.jpg)", Spec: "*.png;*.jpg;*.jpeg"},
@@ -104,54 +155,78 @@ func newAppWindow() *appWindow {
 	})
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("作者:").
-		Position(ui.Dpi(10, 88)))
+		Text("作者").
+		Position(ui.Dpi(contentLeft, 190)))
 
 	app.authorEdit = ui.NewEdit(app.wnd, ui.OptsEdit().
-		Position(ui.Dpi(80, 85)).
-		Width(ui.DpiX(360)))
+		Position(ui.Dpi(fieldLeft, 186)).
+		Width(ui.DpiX(inputWidth)).
+		Height(ui.DpiY(rowHeight)).
+		Layout(ui.LAY_RESIZE_HOLD))
+	app.authorEdit.On().EnChange(func() {
+		app.persistConfig()
+	})
+	setCueBanner(app.authorEdit.Hwnd(), "可留空，程序会尽量从文件名自动提取")
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("书名:").
-		Position(ui.Dpi(10, 123)))
+		Text("自动识别").
+		Position(ui.Dpi(contentLeft, 234)))
 
 	app.booknameLbl = ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("（选择 TXT 后显示）").
-		Position(ui.Dpi(80, 120)))
+		Text("书名将在选择 TXT 后显示").
+		Position(ui.Dpi(fieldLeft, 234)).
+		Size(ui.DpiX(fullWidth), ui.DpiY(20)).
+		Layout(ui.LAY_RESIZE_HOLD).
+		CtrlStyle(co.SS_LEFTNOWORDWRAP))
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("输出格式:").
-		Position(ui.Dpi(10, 158)))
+		Text("转换选项").
+		Position(ui.Dpi(leftPad, 278)))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Position(ui.Dpi(leftPad, 304)).
+		Size(ui.DpiX(rightEdge-leftPad), 2).
+		Layout(ui.LAY_RESIZE_HOLD).
+		CtrlStyle(co.SS_ETCHEDHORZ))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("输出格式").
+		Position(ui.Dpi(contentLeft, 328)))
 
 	app.formatCombo = ui.NewComboBox(app.wnd, ui.OptsComboBox().
-		Position(ui.Dpi(80, 155)).
-		Width(ui.DpiX(120)).
+		Position(ui.Dpi(fieldLeft, 324)).
+		Width(ui.DpiX(130)).
 		CtrlStyle(co.CBS_DROPDOWNLIST))
 	app.formatCombo.AddItem("all", "epub", "mobi", "azw3")
 	app.formatCombo.SelectIndex(0)
+	app.formatCombo.On().CbnSelChange(func() {
+		app.persistConfig()
+	})
 
 	app.chkDedup = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
 		Text("合并重复目录行").
-		Position(ui.Dpi(10, 193)).
+		Position(ui.Dpi(contentLeft, 368)).
 		State(co.BST_CHECKED))
 	app.chkTips = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
 		Text("添加制作说明").
-		Position(ui.Dpi(200, 193)).
+		Position(ui.Dpi(contentLeft+210, 368)).
 		State(co.BST_CHECKED))
 	app.chkQuotes = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
 		Text("对话引号优化（「」→ “”）").
-		Position(ui.Dpi(10, 223)))
+		Position(ui.Dpi(contentLeft, 402)))
 
 	app.btnConvert = ui.NewButton(app.wnd, ui.OptsButton().
 		Text("开始转换").
-		Position(ui.Dpi(10, 256)).
-		Width(ui.DpiX(120)))
+		Position(ui.Dpi(contentLeft, 448)).
+		Width(ui.DpiX(144)).
+		Height(ui.DpiY(34)))
 	app.btnConvert.Hwnd().EnableWindow(false)
 
 	app.btnOpenDir = ui.NewButton(app.wnd, ui.OptsButton().
 		Text("打开输出目录").
-		Position(ui.Dpi(140, 256)).
-		Width(ui.DpiX(120)))
+		Position(ui.Dpi(contentLeft+156, 448)).
+		Width(ui.DpiX(144)).
+		Height(ui.DpiY(34)))
 	app.btnOpenDir.Hwnd().EnableWindow(false)
 	app.btnOpenDir.On().BnClicked(func() {
 		if app.lastOutDir != "" {
@@ -159,12 +234,37 @@ func newAppWindow() *appWindow {
 		}
 	})
 
+	app.statusLbl = ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("准备就绪：选择 TXT 文件后即可开始转换。").
+		Position(ui.Dpi(contentLeft+320, 456)).
+		Size(ui.DpiX(rightEdge-(contentLeft+320)), ui.DpiY(18)).
+		Layout(ui.LAY_RESIZE_HOLD).
+		CtrlStyle(co.SS_LEFTNOWORDWRAP))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("转换日志").
+		Position(ui.Dpi(leftPad, 506)))
+
+	app.headerHint = ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("这里会显示解析进度、输出结果和错误信息。").
+		Position(ui.Dpi(rightEdge-230, 506)).
+		Size(ui.DpiX(230), ui.DpiY(18)).
+		Layout(ui.LAY_MOVE_HOLD).
+		CtrlStyle(co.SS_LEFTNOWORDWRAP))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Position(ui.Dpi(leftPad, 532)).
+		Size(ui.DpiX(rightEdge-leftPad), 2).
+		Layout(ui.LAY_RESIZE_HOLD).
+		CtrlStyle(co.SS_ETCHEDHORZ))
+
 	app.txtLog = ui.NewEdit(app.wnd, ui.OptsEdit().
-		Position(ui.Dpi(10, 292)).
-		Width(ui.DpiX(540)).
-		Height(ui.DpiY(280)).
+		Position(ui.Dpi(leftPad, 548)).
+		Width(ui.DpiX(rightEdge-leftPad)).
+		Height(ui.DpiY(170)).
 		Layout(ui.LAY_RESIZE_RESIZE).
 		CtrlStyle(co.ES_MULTILINE|co.ES_READONLY|co.ES_AUTOVSCROLL|co.ES_WANTRETURN))
+	setCueBanner(app.txtLog.Hwnd(), "转换开始后，这里会实时显示处理日志")
 
 	app.btnConvert.On().BnClicked(func() {
 		app.startConvert()
@@ -188,7 +288,6 @@ func (app *appWindow) applyConfig(cfg guiConfig) {
 	if cfg.TxtFile != "" {
 		if _, err := os.Stat(cfg.TxtFile); err == nil {
 			app.txtFile.SetText(cfg.TxtFile)
-			app.updateBooknamePreview(cfg.TxtFile)
 		}
 	}
 	if cfg.CoverFile != "" {
@@ -215,18 +314,28 @@ func (app *appWindow) setTxtPath(path string) {
 }
 
 func (app *appWindow) updateBooknamePreview(txtPath string) {
-	name, _ := kafcli.FilenameMeta(txtPath)
-	if name == "" {
-		app.booknameLbl.SetTextAndResize("（无法识别书名）")
+	txtPath = strings.TrimSpace(txtPath)
+	if txtPath == "" {
+		_ = app.booknameLbl.Hwnd().SetWindowText("书名将在选择 TXT 后显示")
 		return
 	}
-	app.booknameLbl.SetTextAndResize(name)
+	name, _ := kafcli.FilenameMeta(txtPath)
+	if name == "" {
+		_ = app.booknameLbl.Hwnd().SetWindowText("未能从文件名中识别书名，可直接继续转换")
+		return
+	}
+	_ = app.booknameLbl.Hwnd().SetWindowText(name)
 }
 
 func (app *appWindow) onTxtPathChanged() {
 	path := strings.TrimSpace(app.txtFile.Text())
 	app.btnConvert.Hwnd().EnableWindow(path != "" && !app.converting)
 	app.updateBooknamePreview(path)
+	if path == "" {
+		_ = app.statusLbl.Hwnd().SetWindowText("准备就绪：选择 TXT 文件后即可开始转换。")
+	} else {
+		_ = app.statusLbl.Hwnd().SetWindowText("已选择 TXT，确认参数后可开始转换。")
+	}
 
 	if strings.TrimSpace(app.coverFile.Text()) == "" {
 		if auto := findCover(path); auto != "" {
@@ -294,6 +403,7 @@ func (app *appWindow) startConvert() {
 	app.btnConvert.SetText("转换中...")
 	app.btnConvert.Hwnd().EnableWindow(false)
 	app.btnOpenDir.Hwnd().EnableWindow(false)
+	_ = app.statusLbl.Hwnd().SetWindowText("正在转换，请稍候...")
 	app.logBuf.reset()
 	app.txtLog.SetText("")
 
@@ -311,11 +421,13 @@ func (app *appWindow) startConvert() {
 			app.persistConfig()
 
 			if err != nil {
+				_ = app.statusLbl.Hwnd().SetWindowText("转换失败，请检查日志或参数设置。")
 				app.wnd.Hwnd().MessageBox(err.Error(), "转换失败", co.MB_ICONERROR)
 				return
 			}
 
 			app.btnOpenDir.Hwnd().EnableWindow(true)
+			_ = app.statusLbl.Hwnd().SetWindowText("转换完成，可以直接打开输出目录。")
 			id, _ := app.wnd.Hwnd().MessageBox(
 				"电子书转换完成！\n是否打开输出目录？",
 				"完成",
@@ -326,4 +438,15 @@ func (app *appWindow) startConvert() {
 			}
 		})
 	}()
+}
+
+func setCueBanner(hWnd win.HWND, text string) {
+	if text == "" || hWnd == 0 {
+		return
+	}
+	ptr, err := syscall.UTF16PtrFromString(text)
+	if err != nil {
+		return
+	}
+	_, _ = hWnd.SendMessage(co.EM_SETCUEBANNER, 0, win.LPARAM(uintptr(unsafe.Pointer(ptr))))
 }

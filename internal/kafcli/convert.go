@@ -13,11 +13,9 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -136,16 +134,7 @@ func (book *Book) SetDefault() {
 func (book *Book) Check(version string) error {
 	book.version = version
 	if book.Filename == "" {
-		fmt.Println("错误: 文件名不能为空")
-		fmt.Println("软件版本: \t", version)
-		fmt.Println("简洁模式: \t把文件拖放到kaf-cli上")
-		fmt.Println("命令行简单模式: kaf-cli ebook.txt")
-		fmt.Println("\n以下为kaf-cli的全部参数")
-		flag.PrintDefaults()
-		if runtime.GOOS == "windows" {
-			time.Sleep(time.Second * 10)
-		}
-		os.Exit(0)
+		return book.usageError()
 	}
 	if !strings.HasSuffix(book.Filename, ".txt") {
 		return errors.New("不是txt文件")
@@ -182,7 +171,7 @@ func (book *Book) Check(version string) error {
 	case "gen", "orly":
 		cover, err := GenCover(book.Bookname, book.Author, book.CoverOrlyColor, book.CoverOrlyIdx)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("生成封面失败: %w", err)
 		}
 		book.Cover = cover
 	default:
@@ -208,35 +197,55 @@ func (book *Book) Check(version string) error {
 	return nil
 }
 
-func (book *Book) readBuffer(filename string) *bufio.Reader {
+func (book *Book) usageError() error {
+	var buf bytes.Buffer
+	origOutput := flag.CommandLine.Output()
+	flag.CommandLine.SetOutput(&buf)
+	defer flag.CommandLine.SetOutput(origOutput)
+
+	fmt.Fprintln(&buf, "错误: 文件名不能为空")
+	fmt.Fprintln(&buf, "软件版本:\t", book.version)
+	fmt.Fprintln(&buf, "简洁模式:\t把文件拖放到kaf-cli上")
+	fmt.Fprintln(&buf, "命令行简单模式: kaf-cli ebook.txt")
+	fmt.Fprintln(&buf, "\n以下为kaf-cli的全部参数")
+	flag.PrintDefaults()
+	return errors.New(strings.TrimRight(buf.String(), "\n"))
+}
+
+func (book *Book) openTextReader(filename string) (io.ReadCloser, error) {
 	f, err := os.Open(filename)
 	if err != nil {
-		fmt.Println("读取文件出错: ", err.Error())
-		os.Exit(1)
+		return nil, fmt.Errorf("读取文件出错: %w", err)
 	}
 	temBuf := bufio.NewReader(f)
 	bs, _ := temBuf.Peek(1024)
 	encodig, encodename, _ := charset.DetermineEncoding(bs, "text/plain")
-	if encodename != "utf-8" {
-		f.Seek(0, 0)
-		bs, err := ioutil.ReadAll(f)
-		if err != nil {
-			fmt.Println("读取文件出错: ", err.Error())
-			os.Exit(1)
-		}
-		var buf bytes.Buffer
-		book.Decoder = encodig.NewDecoder()
-		if encodename == "windows-1252" {
-			book.Decoder = simplifiedchinese.GB18030.NewDecoder()
-		}
-		bs, _, _ = transform.Bytes(book.Decoder, bs)
-		buf.Write(bs)
-		return bufio.NewReader(&buf)
-	} else {
-		f.Seek(0, 0)
-		buf := bufio.NewReader(f)
-		return buf
+	if _, err := f.Seek(0, 0); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("读取文件出错: %w", err)
 	}
+	if encodename == "utf-8" {
+		return f, nil
+	}
+
+	bs, err = io.ReadAll(f)
+	closeErr := f.Close()
+	if err != nil {
+		return nil, fmt.Errorf("读取文件出错: %w", err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("关闭文件出错: %w", closeErr)
+	}
+
+	book.Decoder = encodig.NewDecoder()
+	if encodename == "windows-1252" {
+		book.Decoder = simplifiedchinese.GB18030.NewDecoder()
+	}
+	bs, _, err = transform.Bytes(book.Decoder, bs)
+	if err != nil {
+		return nil, fmt.Errorf("文本转码失败: %w", err)
+	}
+	return io.NopCloser(bytes.NewReader(bs)), nil
 }
 
 func (book *Book) ToString() {
@@ -263,7 +272,12 @@ func (book *Book) Parse() error {
 	var contentList []Section
 	fmt.Println("正在读取txt文件...")
 	start := time.Now()
-	buf := book.readBuffer(book.Filename)
+	reader, err := book.openTextReader(book.Filename)
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	buf := bufio.NewReader(reader)
 	var title string
 	var content bytes.Buffer
 	for {
@@ -272,6 +286,11 @@ func (book *Book) Parse() error {
 			if err == io.EOF {
 				if line != "" {
 					if line = strings.TrimSpace(line); line != "" {
+						line = strings.ReplaceAll(line, "<", "&lt;")
+						line = strings.ReplaceAll(line, ">", "&gt;")
+						if book.NormalizeQuotes {
+							line = normalizeLineQuotes(line)
+						}
 						addPart(&content, line)
 					}
 				}
@@ -380,7 +399,7 @@ func sectionCount(sections []Section) int {
 	return count
 }
 
-func (book *Book) Convert() {
+func (book *Book) Convert() error {
 	start := time.Now()
 	// 解析文本
 	fmt.Println()
@@ -410,26 +429,35 @@ func (book *Book) Convert() {
 	// 生成epub
 	if isEpub {
 		convert = EpubConverter{}
-		convert.Build(*book)
+		if err := convert.Build(*book); err != nil {
+			return fmt.Errorf("生成epub失败: %w", err)
+		}
 		fmt.Println()
 	}
 	// 生成azw3格式
 	if isAzw3 {
 		convert = Azw3Converter{}
 		// 生成kindle格式
-		convert.Build(*book)
+		if err := convert.Build(*book); err != nil {
+			return fmt.Errorf("生成azw3失败: %w", err)
+		}
 	}
 	// 生成mobi格式
 	if isMobi {
 		if hasKinldegen == "" {
 			convert = MobiConverter{}
-			convert.Build(*book)
+			if err := convert.Build(*book); err != nil {
+				return fmt.Errorf("生成mobi失败: %w", err)
+			}
 		} else {
-			converToMobi(fmt.Sprintf("%s.epub", book.Out), book.Lang)
+			if err := converToMobi(fmt.Sprintf("%s.epub", book.Out), book.Lang); err != nil {
+				return err
+			}
 		}
 	}
 	end := time.Now().Sub(start)
 	fmt.Println("\n转换完成! 总耗时:", end)
+	return nil
 }
 
 func addPart(buff *bytes.Buffer, content string) {

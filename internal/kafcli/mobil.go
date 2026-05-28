@@ -14,7 +14,7 @@ func (convert MobiConverter) Build(book Book) error {
 	start := time.Now()
 	m, err := mobi.NewWriter(fmt.Sprintf("%s.mobi", book.Out))
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("创建mobi文件失败: %w", err)
 	}
 	m.Title(book.Bookname)
 	m.Compression(mobi.CompressionNone)

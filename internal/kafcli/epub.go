@@ -25,10 +25,11 @@ func (convert EpubConverter) Build(book Book) error {
 	start := time.Now()
 	// 写入样式
 	tempDir, err := os.MkdirTemp("", "kaf-cli")
+	if err != nil {
+		return fmt.Errorf("创建临时文件夹失败: %w", err)
+	}
 	defer func() {
-		if err := os.RemoveAll(tempDir); err != nil {
-			panic(fmt.Sprintf("创建临时文件夹失败: %s", err))
-		}
+		_ = os.RemoveAll(tempDir)
 	}()
 
 	// Create a ne EPUB
@@ -44,7 +45,10 @@ func (convert EpubConverter) Build(book Book) error {
 		excss = fmt.Sprintf("line-height: %s;", book.LineHeight)
 	}
 	if b, _ := isExists(book.Font); b {
-		fontfile, _ := e.AddFont(book.Font, "")
+		fontfile, err := e.AddFont(book.Font, "")
+		if err != nil {
+			return fmt.Errorf("添加字体失败: %w", err)
+		}
 		excss += `
 font-family: "embedfont";
 `
@@ -75,23 +79,30 @@ font-family: "embedfont";
 
 	for _, section := range book.SectionList {
 		if len(section.Sections) > 0 {
-			internalFilename, _ := e.AddSection(
+			internalFilename, err := e.AddSection(
 				convert.wrapTitle(section.Title, section.Content),
 				section.Title,
 				"",
 				css,
 			)
+			if err != nil {
+				return fmt.Errorf("添加章节失败: %w", err)
+			}
 			for _, subsecton := range section.Sections {
-				e.AddSubSection(
+				if _, err := e.AddSubSection(
 					internalFilename,
 					convert.wrapTitle(subsecton.Title, subsecton.Content),
 					subsecton.Title,
 					"",
 					css,
-				)
+				); err != nil {
+					return fmt.Errorf("添加子章节失败: %w", err)
+				}
 			}
 		} else {
-			e.AddSection(convert.wrapTitle(section.Title, section.Content), section.Title, "", css)
+			if _, err := e.AddSection(convert.wrapTitle(section.Title, section.Content), section.Title, "", css); err != nil {
+				return fmt.Errorf("添加章节失败: %w", err)
+			}
 		}
 	}
 
@@ -100,7 +111,7 @@ font-family: "embedfont";
 	epubName := book.Out + ".epub"
 	err = e.Write(epubName)
 	if err != nil {
-		// handle error
+		return fmt.Errorf("写入epub失败: %w", err)
 	}
 	// 计算耗时
 	end := time.Now().Sub(start)

@@ -61,9 +61,10 @@ func parseLang(lang string) string {
 	if lang == "" {
 		return "en"
 	}
-	var langs = "en,de,fr,it,es,zh,ja,pt,ru,nl"
-	if strings.Contains(langs, lang) {
-		return lang
+	for _, supported := range []string{"en", "de", "fr", "it", "es", "zh", "ja", "pt", "ru", "nl"} {
+		if lang == supported {
+			return lang
+		}
 	}
 	return "en"
 }
@@ -95,15 +96,21 @@ func lookKindlegen() string {
 	return kindlegen
 }
 
-func converToMobi(bookname, lang string) {
+func converToMobi(bookname, lang string) error {
 	command := lookKindlegen()
+	if command == "" {
+		return fmt.Errorf("未找到Kindle格式转换器 kindlegen")
+	}
 	fmt.Printf("\n检测到Kindle格式转换器: %s，正在把书籍转换成Kindle格式...\n", command)
 	fmt.Println("转换mobi比较花时间, 大约耗时1-10分钟, 请等待...")
 	start := time.Now()
-	run(command, "-dont_append_source", "-locale", lang, "-c1", bookname)
+	if err := run(command, "-dont_append_source", "-locale", lang, "-c1", bookname); err != nil {
+		return fmt.Errorf("转换mobi失败: %w", err)
+	}
 	// 计算耗时
 	end := time.Now().Sub(start)
 	fmt.Println("转换为mobi格式耗时:", end)
+	return nil
 }
 
 func isExists(path string) (bool, error) {
@@ -204,7 +211,14 @@ func GenCover(title, author, color string, img int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("封面服务返回异常状态: %s", res.Status)
+	}
 	tempDir, err := os.MkdirTemp("", "kaf-cli")
+	if err != nil {
+		return "", err
+	}
 	bs, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", err

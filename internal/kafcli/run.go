@@ -12,7 +12,9 @@ func Run(book *Book, version, secret, measurement string) error {
 	if err := book.Parse(); err != nil {
 		return fmt.Errorf("解析失败: %w", err)
 	}
-	book.Convert()
+	if err := book.Convert(); err != nil {
+		return fmt.Errorf("转换失败: %w", err)
+	}
 	return nil
 }
 

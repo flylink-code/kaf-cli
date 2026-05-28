@@ -27,7 +27,9 @@ func KafConvert(params *C.char) int64 {
 	if err := bookArg.Parse(); err != nil {
 		return 3
 	}
-	bookArg.Convert()
+	if err := bookArg.Convert(); err != nil {
+		return 4
+	}
 	return 0
 }
 
