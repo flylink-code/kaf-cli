@@ -4,10 +4,13 @@
 
 本项目 fork 自 [ystyle/kaf-cli](https://github.com/ystyle/kaf-cli)，在保留原有功能的基础上增加了 Windows 图形界面与章节目录优化等改进。
 
+目录说明见 [docs/STRUCTURE.md](docs/STRUCTURE.md)。
+
 ### 本 fork 新增
 
 - **Windows 图形版 `kaf-cli-gui.exe`**：窗口内选择 TXT 与封面图片（png/jpg），一键转换
 - **章节目录去重 `-dedup-title`**：合并「目录行 + 正文标题行」重复章节（默认开启）
+- **对话引号优化 `-normalize-quotes`**：正文 `「」` 转为 `“”`（默认关闭，不影响【】）
 - **构建脚本优化**：`build.ps1` 支持一键编译 CLI / GUI，失败时明确报错
 
 ### 功能
@@ -51,15 +54,21 @@ Windows 压缩包内包含：
 需要 Go 1.21+。
 
 ```powershell
-# Windows
+# Windows（根目录快捷方式，实际脚本在 scripts/）
 .\build.ps1
+# 或
+.\scripts\build.ps1
 ```
 
-编译产物：
+编译产物在 `build/` 目录（与 CI 结构一致）：
 
-- `kaf-cli.exe` — 64 位 CLI
-- `kaf-cli-gui.exe` — 64 位 GUI（Windows 专用，无控制台窗口）
-- `kaf-cli_32.exe` — 32 位 CLI
+| 路径 | 说明 |
+|---|---|
+| `build/windows-amd64/kaf-cli.exe` | 64 位 CLI |
+| `build/windows-amd64/kaf-cli-gui.exe` | 64 位 GUI（无控制台窗口） |
+| `build/windows-386/kaf-cli.exe` | 32 位 CLI（无 GUI） |
+
+日常使用可将 `build/windows-amd64/` 下的 exe 复制到工作目录，或直接把 txt 拖到该目录中的 `kaf-cli.exe` 上。
 
 > GUI 依赖 [windigo](https://github.com/rodrigocfd/windigo)，仅提供 64 位版本。
 
@@ -67,10 +76,11 @@ Windows 压缩包内包含：
 
 #### 图形界面（Windows）
 
-1. 运行 `kaf-cli-gui.exe`
+1. 运行 `build/windows-amd64/kaf-cli-gui.exe`（或复制到任意目录后运行）
 2. 点击「浏览...」选择 TXT 小说文件
-3. （可选）选择封面 png/jpg；若同目录有同名图片会自动填入
-4. 点击「开始转换」，完成后在 TXT 同目录生成 epub / mobi / azw3
+3. （可选）填写作者、选择输出格式（all/epub/mobi/azw3）
+4. 可选勾选：合并重复目录行、制作说明、对话引号优化
+5. 点击「开始转换」，完成后在 TXT 同目录生成对应格式文件
 
 #### 拖拽 / 命令行
 
@@ -82,8 +92,8 @@ Windows 压缩包内包含：
 
 ### 效果
 
-![效果图片](2021-06-20_12-13-34.png)
-![效果图片](2020-01-21_12-02.png)
+![效果图片](docs/images/2021-06-20_12-13-34.png)
+![效果图片](docs/images/2020-01-21_12-02.png)
 
 ### 命令行模式参数
 
@@ -105,6 +115,8 @@ Usage of kaf-cli:
         orly 封面的动物, 可以为 0-41, 不填时随机 (default -1)
   -dedup-title
         合并连续重复的章节目录行（同章号且上一节无正文）(default true)
+  -normalize-quotes
+        正文对话引号优化：「」转为 “”（不影响【】）(default false)
   -filename string
         txt 文件名
   -font string
@@ -159,6 +171,10 @@ kaf-cli.exe -filename 全职法师.txt -dedup-title=false
 
 开启 `-dedup-title`（默认）后，会跳过无正文的重复目录行，避免 EPUB 目录章节翻倍。
 
+### 对话引号优化说明
+
+部分网文对话使用 `「」`，开启 `-normalize-quotes` 后正文会替换为 `“”`，`【】` 系统提示不变。章节标题行不替换。
+
 ### 自定义章节匹配规则
 
 规则支持[正则表达式](http://deerchao.net/tutorials/regex/regex.htm)。
@@ -180,7 +196,7 @@ kaf-cli.exe -filename ebook.txt -match "Chapter .{1,8}"
 
 1. 下载 [kindlegen](https://github.com/ystyle/kaf-cli/releases/kindlegen/)（github 备份，官网已经不提供下载）
 2. 放到与 `kaf-cli.exe` 同目录，或 PATH 中
-3. 也可手动执行：`kindlegen.exe XXXX.epub`
+3. 也可手动执行：`kindlegen.exe 全职法师.epub`
 
 ### 致谢
 

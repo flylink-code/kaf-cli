@@ -15,6 +15,17 @@ func TestLook(t *testing.T) {
 	fmt.Println(kindlegen)
 }
 
+func TestNormalizeLineQuotes(t *testing.T) {
+	in := "「苏先生」女子说：「您好。」【系统】「误触」"
+	want := "“苏先生”女子说：“您好。”【系统】“误触”"
+	if got := normalizeLineQuotes(in); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if got := normalizeLineQuotes("无引号一行"); got != "无引号一行" {
+		t.Fatalf("unchanged line modified: %q", got)
+	}
+}
+
 func TestDedupTitleSections(t *testing.T) {
 	sections := []Section{
 		{Title: "第1章 一章「abc」", Content: ""},

@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	kafcli "github.com/ystyle/kaf-cli"
+	kafcli "github.com/ystyle/kaf-cli/internal/kafcli"
 	"os"
 	"strings"
 )

@@ -3,7 +3,7 @@ package main
 import "C"
 import (
 	"encoding/json"
-	kafcli "github.com/ystyle/kaf-cli"
+	kafcli "github.com/ystyle/kaf-cli/internal/kafcli"
 )
 
 var (

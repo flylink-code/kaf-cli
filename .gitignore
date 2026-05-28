@@ -6,9 +6,9 @@
 *.exe
 *.tmp
 *.zio
+build/
+kaf-cli.syso
 kaf-cli-*
 samples
-book
-task_plan.md
-findings.md
-progress.md
+examples/
+docs/dev/

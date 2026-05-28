@@ -210,6 +210,19 @@ func chapterKey(title string) string {
 	return ""
 }
 
+// normalizeLineQuotes 将正文直角引号替换为弯引号（仅处理「」『』，不改动【】）。
+func normalizeLineQuotes(line string) string {
+	if !strings.ContainsAny(line, "「」『』") {
+		return line
+	}
+	return strings.NewReplacer(
+		"「", "\u201c",
+		"」", "\u201d",
+		"『", "\u2018",
+		"』", "\u2019",
+	).Replace(line)
+}
+
 // dedupTitleSections 去掉「目录行 + 正文标题行」重复：上一节无正文且与下一节章号相同则跳过。
 func dedupTitleSections(sections []Section) []Section {
 	if len(sections) <= 1 {
