@@ -3,11 +3,8 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 
@@ -21,22 +18,24 @@ var (
 	secret      string
 	measurement string
 	version     = "dev"
-
-	authorFromFilename = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt$`)
 )
 
 type appWindow struct {
-	wnd         *ui.Main
-	txtFile     *ui.Edit
-	coverFile   *ui.Edit
-	authorEdit  *ui.Edit
-	formatCombo *ui.ComboBox
-	chkDedup    *ui.CheckBox
-	chkTips     *ui.CheckBox
-	chkQuotes   *ui.CheckBox
-	btnConvert  *ui.Button
-	txtLog      *ui.Edit
-	converting  bool
+	wnd          *ui.Main
+	txtFile      *ui.Edit
+	coverFile    *ui.Edit
+	authorEdit   *ui.Edit
+	booknameLbl  *ui.Static
+	formatCombo  *ui.ComboBox
+	chkDedup     *ui.CheckBox
+	chkTips      *ui.CheckBox
+	chkQuotes    *ui.CheckBox
+	btnConvert   *ui.Button
+	btnOpenDir   *ui.Button
+	txtLog       *ui.Edit
+	converting   bool
+	lastOutDir   string
+	logBuf       logBuffer
 }
 
 func main() {
@@ -54,7 +53,9 @@ func newAppWindow() *appWindow {
 		wnd: ui.NewMain(
 			ui.OptsMain().
 				Title("kaf-cli 电子书转换").
-				Size(ui.Dpi(580, 560)),
+				Size(ui.Dpi(580, 600)).
+				ClassIconId(1).
+				DropFiles(true),
 		),
 	}
 
@@ -77,8 +78,7 @@ func newAppWindow() *appWindow {
 		if !ok {
 			return
 		}
-		app.txtFile.SetText(path)
-		app.onTxtPathChanged()
+		app.setTxtPath(path)
 	})
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
@@ -99,6 +99,7 @@ func newAppWindow() *appWindow {
 		})
 		if ok {
 			app.coverFile.SetText(path)
+			app.persistConfig()
 		}
 	})
 
@@ -111,11 +112,19 @@ func newAppWindow() *appWindow {
 		Width(ui.DpiX(360)))
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Text("输出格式:").
+		Text("书名:").
 		Position(ui.Dpi(10, 123)))
 
+	app.booknameLbl = ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("（选择 TXT 后显示）").
+		Position(ui.Dpi(80, 120)))
+
+	ui.NewStatic(app.wnd, ui.OptsStatic().
+		Text("输出格式:").
+		Position(ui.Dpi(10, 158)))
+
 	app.formatCombo = ui.NewComboBox(app.wnd, ui.OptsComboBox().
-		Position(ui.Dpi(80, 120)).
+		Position(ui.Dpi(80, 155)).
 		Width(ui.DpiX(120)).
 		CtrlStyle(co.CBS_DROPDOWNLIST))
 	app.formatCombo.AddItem("all", "epub", "mobi", "azw3")
@@ -123,26 +132,37 @@ func newAppWindow() *appWindow {
 
 	app.chkDedup = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
 		Text("合并重复目录行").
-		Position(ui.Dpi(10, 158)).
+		Position(ui.Dpi(10, 193)).
 		State(co.BST_CHECKED))
 	app.chkTips = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
 		Text("添加制作说明").
-		Position(ui.Dpi(200, 158)).
+		Position(ui.Dpi(200, 193)).
 		State(co.BST_CHECKED))
 	app.chkQuotes = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
 		Text("对话引号优化（「」→ “”）").
-		Position(ui.Dpi(10, 188)))
+		Position(ui.Dpi(10, 223)))
 
 	app.btnConvert = ui.NewButton(app.wnd, ui.OptsButton().
 		Text("开始转换").
-		Position(ui.Dpi(10, 222)).
+		Position(ui.Dpi(10, 256)).
 		Width(ui.DpiX(120)))
 	app.btnConvert.Hwnd().EnableWindow(false)
 
+	app.btnOpenDir = ui.NewButton(app.wnd, ui.OptsButton().
+		Text("打开输出目录").
+		Position(ui.Dpi(140, 256)).
+		Width(ui.DpiX(120)))
+	app.btnOpenDir.Hwnd().EnableWindow(false)
+	app.btnOpenDir.On().BnClicked(func() {
+		if app.lastOutDir != "" {
+			_ = openFolder(app.lastOutDir)
+		}
+	})
+
 	app.txtLog = ui.NewEdit(app.wnd, ui.OptsEdit().
-		Position(ui.Dpi(10, 258)).
+		Position(ui.Dpi(10, 292)).
 		Width(ui.DpiX(540)).
-		Height(ui.DpiY(270)).
+		Height(ui.DpiY(280)).
 		Layout(ui.LAY_RESIZE_RESIZE).
 		CtrlStyle(co.ES_MULTILINE|co.ES_READONLY|co.ES_AUTOVSCROLL|co.ES_WANTRETURN))
 
@@ -150,12 +170,63 @@ func newAppWindow() *appWindow {
 		app.startConvert()
 	})
 
+	app.wnd.On().WmDropFiles(func(p ui.WmDropFiles) {
+		files, err := p.HDrop().DragQueryFile()
+		if err != nil || len(files) == 0 {
+			return
+		}
+		if txt := firstTxtFromDrop(files); txt != "" {
+			app.setTxtPath(txt)
+		}
+	})
+
+	app.applyConfig(loadGUIConfig())
 	return app
+}
+
+func (app *appWindow) applyConfig(cfg guiConfig) {
+	if cfg.TxtFile != "" {
+		if _, err := os.Stat(cfg.TxtFile); err == nil {
+			app.txtFile.SetText(cfg.TxtFile)
+			app.updateBooknamePreview(cfg.TxtFile)
+		}
+	}
+	if cfg.CoverFile != "" {
+		if _, err := os.Stat(cfg.CoverFile); err == nil {
+			app.coverFile.SetText(cfg.CoverFile)
+		}
+	}
+	if cfg.Author != "" {
+		app.authorEdit.SetText(cfg.Author)
+	}
+	if cfg.FormatIndex >= 0 && cfg.FormatIndex < 4 {
+		app.formatCombo.SelectIndex(cfg.FormatIndex)
+	}
+	app.chkDedup.SetCheck(cfg.Dedup)
+	app.chkTips.SetCheck(cfg.Tips)
+	app.chkQuotes.SetCheck(cfg.Quotes)
+	app.onTxtPathChanged()
+}
+
+func (app *appWindow) setTxtPath(path string) {
+	app.txtFile.SetText(path)
+	app.onTxtPathChanged()
+	app.persistConfig()
+}
+
+func (app *appWindow) updateBooknamePreview(txtPath string) {
+	name, _ := kafcli.FilenameMeta(txtPath)
+	if name == "" {
+		app.booknameLbl.SetTextAndResize("（无法识别书名）")
+		return
+	}
+	app.booknameLbl.SetTextAndResize(name)
 }
 
 func (app *appWindow) onTxtPathChanged() {
 	path := strings.TrimSpace(app.txtFile.Text())
 	app.btnConvert.Hwnd().EnableWindow(path != "" && !app.converting)
+	app.updateBooknamePreview(path)
 
 	if strings.TrimSpace(app.coverFile.Text()) == "" {
 		if auto := findCover(path); auto != "" {
@@ -163,19 +234,26 @@ func (app *appWindow) onTxtPathChanged() {
 		}
 	}
 	if strings.TrimSpace(app.authorEdit.Text()) == "" {
-		if author := authorFromTxtPath(path); author != "" {
+		if _, author := kafcli.FilenameMeta(path); author != "" {
 			app.authorEdit.SetText(author)
 		}
 	}
 }
 
-func authorFromTxtPath(path string) string {
-	base := filepath.Base(path)
-	m := authorFromFilename.FindStringSubmatch(base)
-	if len(m) >= 3 {
-		return strings.TrimSpace(m[2])
+func (app *appWindow) persistConfig() {
+	saveGUIConfig(app.currentConfig())
+}
+
+func (app *appWindow) currentConfig() guiConfig {
+	return guiConfig{
+		TxtFile:     strings.TrimSpace(app.txtFile.Text()),
+		CoverFile:   strings.TrimSpace(app.coverFile.Text()),
+		Author:      strings.TrimSpace(app.authorEdit.Text()),
+		FormatIndex: app.formatCombo.SelectedIndex(),
+		Dedup:       app.chkDedup.IsChecked(),
+		Tips:        app.chkTips.IsChecked(),
+		Quotes:      app.chkQuotes.IsChecked(),
 	}
-	return ""
 }
 
 func (app *appWindow) guiOptions() kafcli.GUIOptions {
@@ -196,6 +274,11 @@ func (app *appWindow) guiOptions() kafcli.GUIOptions {
 	}
 }
 
+func (app *appWindow) appendLog(chunk string) {
+	text := app.logBuf.append(chunk)
+	app.txtLog.SetText(text)
+}
+
 func (app *appWindow) startConvert() {
 	txtPath := strings.TrimSpace(app.txtFile.Text())
 	if txtPath == "" {
@@ -207,107 +290,40 @@ func (app *appWindow) startConvert() {
 	}
 
 	app.converting = true
+	app.lastOutDir = filepath.Dir(txtPath)
 	app.btnConvert.SetText("转换中...")
 	app.btnConvert.Hwnd().EnableWindow(false)
+	app.btnOpenDir.Hwnd().EnableWindow(false)
+	app.logBuf.reset()
 	app.txtLog.SetText("")
 
 	opts := app.guiOptions()
 	go func() {
 		err := runConvert(opts, func(line string) {
 			app.wnd.UiThread(func() {
-				app.txtLog.SetText(app.txtLog.Text() + line)
+				app.appendLog(line)
 			})
 		})
 		app.wnd.UiThread(func() {
 			app.converting = false
 			app.btnConvert.SetText("开始转换")
 			app.onTxtPathChanged()
+			app.persistConfig()
+
 			if err != nil {
 				app.wnd.Hwnd().MessageBox(err.Error(), "转换失败", co.MB_ICONERROR)
 				return
 			}
-			app.wnd.Hwnd().MessageBox("电子书转换完成！", "完成", co.MB_ICONINFORMATION)
+
+			app.btnOpenDir.Hwnd().EnableWindow(true)
+			id, _ := app.wnd.Hwnd().MessageBox(
+				"电子书转换完成！\n是否打开输出目录？",
+				"完成",
+				co.MB_YESNO|co.MB_ICONINFORMATION,
+			)
+			if id == co.ID_YES && app.lastOutDir != "" {
+				_ = openFolder(app.lastOutDir)
+			}
 		})
 	}()
-}
-
-func pickFile(parent win.HWND, title string, filters []win.COMDLG_FILTERSPEC) (string, bool) {
-	releaser := win.NewOleReleaser()
-	defer releaser.Release()
-
-	var fod *win.IFileOpenDialog
-	if err := win.CoCreateInstance(releaser, &co.CLSID_FileOpenDialog, nil, co.CLSCTX_INPROC_SERVER, &fod); err != nil {
-		return "", false
-	}
-
-	defOpts, _ := fod.GetOptions()
-	_ = fod.SetOptions(defOpts | co.FOS_FORCEFILESYSTEM | co.FOS_FILEMUSTEXIST)
-	_ = fod.SetFileTypes(filters)
-	_ = fod.SetFileTypeIndex(1)
-	_ = fod.SetTitle(title)
-
-	ok, _ := fod.Show(parent)
-	if !ok {
-		return "", false
-	}
-
-	item, err := fod.GetResult(releaser)
-	if err != nil {
-		return "", false
-	}
-	path, err := item.GetDisplayName(co.SIGDN_FILESYSPATH)
-	if err != nil {
-		return "", false
-	}
-	return path, true
-}
-
-func findCover(txtPath string) string {
-	base := strings.TrimSuffix(txtPath, filepath.Ext(txtPath))
-	for _, ext := range []string{".png", ".jpg", ".jpeg"} {
-		p := base + ext
-		if _, err := os.Stat(p); err == nil {
-			return p
-		}
-	}
-	return ""
-}
-
-func runConvert(opts kafcli.GUIOptions, appendLog func(string)) error {
-	book := kafcli.NewBookGUI(opts)
-
-	oldStdout := os.Stdout
-	r, wPipe, err := os.Pipe()
-	if err != nil {
-		return err
-	}
-	os.Stdout = wPipe
-
-	done := make(chan struct{})
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := r.Read(buf)
-			if n > 0 {
-				appendLog(string(buf[:n]))
-			}
-			if readErr != nil {
-				if readErr != io.EOF {
-					appendLog(readErr.Error())
-				}
-				break
-			}
-		}
-		close(done)
-	}()
-
-	runErr := kafcli.Run(book, version, secret, measurement)
-	wPipe.Close()
-	os.Stdout = oldStdout
-	<-done
-
-	if runErr != nil {
-		return fmt.Errorf("转换失败: %w", runErr)
-	}
-	return nil
 }

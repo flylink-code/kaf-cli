@@ -15,6 +15,30 @@ func TestLook(t *testing.T) {
 	fmt.Println(kindlegen)
 }
 
+func TestIsPartDivisionLabel(t *testing.T) {
+	for _, line := range []string{"第一部", "第三部", "第12部", "第零部"} {
+		if !isPartDivisionLabel(line) {
+			t.Fatalf("%q should be part label", line)
+		}
+	}
+	for _, line := range []string{"第1章 开端", "第一卷", "第三部 崛起", "某个部门", "第1部开始"} {
+		if isPartDivisionLabel(line) {
+			t.Fatalf("%q should not be part label", line)
+		}
+	}
+}
+
+func TestFilenameMeta(t *testing.T) {
+	name, author := FilenameMeta(`book/《第一玩家》作者：流泪猫安头.txt`)
+	if name != "第一玩家" || author != "流泪猫安头" {
+		t.Fatalf("got name=%q author=%q", name, author)
+	}
+	name2, _ := FilenameMeta(`D:/全职法师.txt`)
+	if name2 != "全职法师" {
+		t.Fatalf("got %q", name2)
+	}
+}
+
 func TestNormalizeLineQuotes(t *testing.T) {
 	in := "「苏先生」女子说：「您好。」【系统】「误触」"
 	want := "“苏先生”女子说：“您好。”【系统】“误触”"

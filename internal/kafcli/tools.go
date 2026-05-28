@@ -17,7 +17,28 @@ import (
 	"time"
 )
 
-var chapterKeyReg = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷部]`)
+var (
+	chapterKeyReg       = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
+	filenameMetaReg     = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt`)
+	partDivisionLabelRe = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+部$`)
+)
+
+// isPartDivisionLabel 判断是否为「第一部」「第三部」等正文分篇行（非目录章节）。
+func isPartDivisionLabel(line string) bool {
+	return partDivisionLabelRe.MatchString(line)
+}
+
+// FilenameMeta 从 txt 路径推测书名与作者（规则与 Check 一致）。
+func FilenameMeta(filename string) (bookname, author string) {
+	if filenameMetaReg.MatchString(filename) {
+		group := filenameMetaReg.FindStringSubmatch(filename)
+		if len(group) >= 3 {
+			return strings.TrimSpace(group[1]), strings.TrimSpace(group[2])
+		}
+	}
+	base := filepath.Base(filename)
+	return strings.TrimSuffix(base, filepath.Ext(base)), ""
+}
 
 func parseLang(lang string) string {
 	if lang == "" {

@@ -8,6 +8,7 @@
 *.zio
 build/
 kaf-cli.syso
+cmd/gui/*.syso
 kaf-cli-*
 samples
 examples/

@@ -1,5 +1,5 @@
 param( $param1, $param2 )
-# ¼ì²é²¢ÒÔ¹ÜÀíÔ±Éí·ÝÔËÐÐPS²¢´øÉÏ²ÎÊý
+# ï¿½ï¿½é²¢ï¿½Ô¹ï¿½ï¿½ï¿½Ô±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½PSï¿½ï¿½ï¿½ï¿½ï¿½Ï²ï¿½ï¿½ï¿½
 $currentWi = [Security.Principal.WindowsIdentity]::GetCurrent()
 $currentWp = [Security.Principal.WindowsPrincipal]$currentWi
 if( -not $currentWp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
@@ -14,14 +14,14 @@ if( -not $currentWp.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $repoRoot = Split-Path -Parent $scriptDir
 
-# ÓÅÏÈ£ºÓë½Å±¾Í¬Ä¿Â¼£¨Release ½âÑ¹°ü£©£»Æä´Î£º²Ö¿â build Êä³ö
+# ï¿½ï¿½ï¿½È£ï¿½ï¿½ï¿½Å±ï¿½Í¬Ä¿Â¼ï¿½ï¿½Release ï¿½ï¿½Ñ¹ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Î£ï¿½ï¿½Ö¿ï¿½ build ï¿½ï¿½ï¿½
 $exeCandidates = @(
     (Join-Path $scriptDir "kaf-cli.exe"),
     (Join-Path $repoRoot "build\windows-amd64\kaf-cli.exe")
 )
 $exe_path = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $exe_path) {
-    Write-Error "Î´ÕÒµ½ kaf-cli.exe£¬Çë½« exe ·ÅÔÚ½Å±¾Í¬Ä¿Â¼£¬»òÏÈÖ´ÐÐ .\build.ps1"
+    Write-Error "Î´ï¿½Òµï¿½ kaf-cli.exeï¿½ï¿½ï¿½ë½« exe ï¿½ï¿½ï¿½Ú½Å±ï¿½Í¬Ä¿Â¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö´ï¿½ï¿½ .\build.ps1"
     pause
     exit 1
 }
@@ -29,11 +29,11 @@ if (-not $exe_path) {
 $ico_path = $exe_path
 $exe_cmd = $exe_path + ' "%1"'
 
-New-Item -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ÓÃkaf-cli×ª»»
-New-ItemProperty -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ÓÃkaf-cli×ª»» -Name Icon -PropertyType String -Value $ico_path
+New-Item -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ï¿½ï¿½kaf-cli×ªï¿½ï¿½
+New-ItemProperty -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ï¿½ï¿½kaf-cli×ªï¿½ï¿½ -Name Icon -PropertyType String -Value $ico_path
 
-New-Item -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ÓÃkaf-cli×ª»»\command
-New-ItemProperty -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ÓÃkaf-cli×ª»»\command -Name "(default)" -PropertyType String -Value $exe_cmd
+New-Item -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ï¿½ï¿½kaf-cli×ªï¿½ï¿½\command
+New-ItemProperty -Force -Path Registry::HKEY_CLASSES_ROOT\txtfile\shell\Ê¹ï¿½ï¿½kaf-cli×ªï¿½ï¿½\command -Name "(default)" -PropertyType String -Value $exe_cmd
 
-echo "×¢²áÓÒ¼ü²Ëµ¥³É¹¦! Ê¹ÓÃ: $exe_path"
+echo "×¢ï¿½ï¿½ï¿½Ò¼ï¿½ï¿½Ëµï¿½ï¿½É¹ï¿½! Ê¹ï¿½ï¿½: $exe_path"
 pause

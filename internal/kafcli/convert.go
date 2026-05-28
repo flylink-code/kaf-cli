@@ -69,8 +69,8 @@ const (
 	htmlTitleStart     = `<h3 class="title">`
 	mobiTtmlTitleStart = `<h3 style="text-align:%s;">`
 	htmlTitleEnd       = "</h3>"
-	VolumeMatch        = "^第[0-9一二三四五六七八九十零〇百千两 ]+[卷部]"
-	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷部]|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^\\d+、|^引子$|^楔子$|^章节目录|^章节|^序章"
+	VolumeMatch        = "^第[0-9一二三四五六七八九十零〇百千两 ]+卷"
+	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷]|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^\\d+、|^引子$|^楔子$|^章节目录|^章节|^序章"
 	cssContent         = `
 .title {text-align:%s}
 .content {
@@ -283,6 +283,14 @@ func (book *Book) Parse() error {
 		line = strings.ReplaceAll(line, ">", "&gt;")
 		// 空行直接跳过
 		if len(line) == 0 {
+			continue
+		}
+		// 「第一部」「第三部」等正文分篇标注，不作为章节/卷
+		if isPartDivisionLabel(line) {
+			if book.NormalizeQuotes {
+				line = normalizeLineQuotes(line)
+			}
+			addPart(&content, line)
 			continue
 		}
 		// 处理标题
