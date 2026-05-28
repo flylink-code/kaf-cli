@@ -169,6 +169,12 @@ func (book *Book) Check(version string) error {
 	if book.Out == "" {
 		book.Out = book.Bookname
 	}
+	absFile, absErr := filepath.Abs(book.Filename)
+	if absErr != nil {
+		return fmt.Errorf("文件路径无效: %w", absErr)
+	}
+	book.Filename = absFile
+	book.Out = resolveOutputPath(book.Filename, book.Out)
 	book.Lang = parseLang(book.Lang)
 	switch book.Cover {
 	case "none":

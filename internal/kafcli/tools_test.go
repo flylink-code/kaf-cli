@@ -15,6 +15,19 @@ func TestLook(t *testing.T) {
 	fmt.Println(kindlegen)
 }
 
+func TestResolveOutputPath(t *testing.T) {
+	txt := `H:\books\《第一玩家》作者：流泪猫安头.txt`
+	got := resolveOutputPath(txt, "《第一玩家》作者：流泪猫安头")
+	want := `H:\books\《第一玩家》作者：流泪猫安头`
+	if got != want {
+		t.Fatalf("got %q want %q", got, want)
+	}
+	absOut := resolveOutputPath(txt, `D:\output\custom`)
+	if absOut != `D:\output\custom` {
+		t.Fatalf("abs out got %q", absOut)
+	}
+}
+
 func TestIsPartDivisionLabel(t *testing.T) {
 	for _, line := range []string{"第一部", "第三部", "第12部", "第零部"} {
 		if !isPartDivisionLabel(line) {

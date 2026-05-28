@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### 修复
+
+- 输出文件写入 txt 所在目录，不再落到 GUI/CLI 的当前工作目录（exe 目录）
+
 ## v1.5.0 (2026-05-28)
 
 ### GUI

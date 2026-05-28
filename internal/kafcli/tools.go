@@ -28,6 +28,23 @@ func isPartDivisionLabel(line string) bool {
 	return partDivisionLabelRe.MatchString(line)
 }
 
+// resolveOutputPath 解析输出路径为绝对路径；仅文件名时写入 txt 所在目录。
+func resolveOutputPath(txtPath, out string) string {
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return out
+	}
+	if filepath.IsAbs(out) {
+		return filepath.Clean(out)
+	}
+	if dir := filepath.Dir(out); dir != "." {
+		if abs, err := filepath.Abs(out); err == nil {
+			return abs
+		}
+	}
+	return filepath.Join(filepath.Dir(txtPath), filepath.Base(out))
+}
+
 // FilenameMeta 从 txt 路径推测书名与作者（规则与 Check 一致）。
 func FilenameMeta(filename string) (bookname, author string) {
 	if filenameMetaReg.MatchString(filename) {
