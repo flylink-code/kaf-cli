@@ -1,9 +1,12 @@
+param(
+    [string]$Version = "dev"
+)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
 $env:GOPROXY = "https://goproxy.cn,direct"
-$ldflags = "-s -w -X main.version=dev"
+$ldflags = "-s -w -X main.version=$Version"
 
 $outAmd64 = Join-Path $Root "build\windows-amd64"
 $out386 = Join-Path $Root "build\windows-386"

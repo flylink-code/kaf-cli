@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wails CLI
+        shell: pwsh
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Add Go bin to PATH
+        shell: pwsh
+        run: |
+          $gobin = (go env GOPATH) + "\bin"
+          echo $gobin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Build release artifacts
+        shell: pwsh
+        run: .\scripts\build.ps1 -Version "${{ github.ref_name }}"
+
+      - name: Create release archive directory
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item build\windows-amd64\kaf-cli.exe release\kaf-cli-windows-amd64.exe -Force
+          Copy-Item build\windows-amd64\kaf-cli-gui.exe release\kaf-cli-gui-windows-amd64.exe -Force
+          if (Test-Path build\windows-amd64\kaf-cli-wails.exe) {
+            Copy-Item build\windows-amd64\kaf-cli-wails.exe release\kaf-cli-wails-windows-amd64.exe -Force
+          }
+          Copy-Item build\windows-386\kaf-cli.exe release\kaf-cli-windows-386.exe -Force
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/kaf-cli-windows-amd64.exe
+            release/kaf-cli-gui-windows-amd64.exe
+            release/kaf-cli-wails-windows-amd64.exe
+            release/kaf-cli-windows-386.exe
+          generate_release_notes: true
