@@ -19,7 +19,9 @@ import (
 )
 
 var (
+	chapterDualKeyReg   = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+[章回节集卷]\s*([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
 	chapterKeyReg       = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
+	chapterPlainKeyReg  = regexp.MustCompile(`^([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
 	filenameMetaReg     = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt`)
 	partDivisionLabelRe = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+部$`)
 	roundLabelRe        = regexp.MustCompile(`^(第?[0-9一二三四五六七八九十零〇百千两]+回合|【?第?[0-9一二三四五六七八九十零〇百千两]+回合结束|【?双方行棋，第?[0-9一二三四五六七八九十零〇百千两]+回合)`)
@@ -302,10 +304,68 @@ func defaultBool(src, dst bool) bool {
 	return dst
 }
 
+func normalizeChapterOrdinal(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if n, err := strconv.Atoi(raw); err == nil {
+		return strconv.Itoa(n)
+	}
+
+	digits := map[rune]int{
+		'零': 0,
+		'〇': 0,
+		'一': 1,
+		'二': 2,
+		'两': 2,
+		'三': 3,
+		'四': 4,
+		'五': 5,
+		'六': 6,
+		'七': 7,
+		'八': 8,
+		'九': 9,
+	}
+	units := map[rune]int{
+		'十': 10,
+		'百': 100,
+		'千': 1000,
+	}
+
+	total := 0
+	current := 0
+	seen := false
+	for _, r := range raw {
+		if v, ok := digits[r]; ok {
+			current = v
+			seen = true
+			continue
+		}
+		if unit, ok := units[r]; ok {
+			if current == 0 {
+				current = 1
+			}
+			total += current * unit
+			current = 0
+			seen = true
+			continue
+		}
+		return ""
+	}
+	if !seen {
+		return ""
+	}
+	return strconv.Itoa(total + current)
+}
+
 func chapterKey(title string) string {
-	m := chapterKeyReg.FindStringSubmatch(title)
-	if len(m) >= 2 {
-		return m[1]
+	title = strings.TrimSpace(title)
+	for _, re := range []*regexp.Regexp{chapterDualKeyReg, chapterKeyReg, chapterPlainKeyReg} {
+		m := re.FindStringSubmatch(title)
+		if len(m) >= 2 {
+			return normalizeChapterOrdinal(m[1])
+		}
 	}
 	return ""
 }

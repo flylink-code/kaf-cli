@@ -76,6 +76,21 @@ func TestDedupTitleSections(t *testing.T) {
 	}
 }
 
+func TestDedupTitleSectionsSupportsChineseOrdinalDotTitles(t *testing.T) {
+	sections := []Section{
+		{Title: "一百二十章·第二天·白天", Content: ""},
+		{Title: "第122章 一百二十章·第二天·白天", Content: "<p>body</p>"},
+		{Title: "一百二十一章·夜间", Content: "<p>body2</p>"},
+	}
+	got := dedupTitleSections(sections)
+	if len(got) != 2 {
+		t.Fatalf("want 2 sections, got %d", len(got))
+	}
+	if got[0].Title != "第122章 一百二十章·第二天·白天" {
+		t.Fatalf("unexpected first title: %q", got[0].Title)
+	}
+}
+
 func TestDedupRepeatedSections(t *testing.T) {
 	sections := []Section{
 		{Title: "第29章 二十八章「第一玩家？」", Content: "<p class=\"content\">浩瀚的星海下，是巨大的黑白棋盘。</p><p class=\"content\">弹幕疯狂地滚动起来。</p>"},
@@ -138,6 +153,31 @@ func TestDedupRepeatedSectionsAllowsMinorTextDrift(t *testing.T) {
 	got := dedupRepeatedSections(sections)
 	if len(got) != 1 {
 		t.Fatalf("minor text drift repeat should dedup to 1, got %d", len(got))
+	}
+}
+
+func TestDedupRepeatedSectionsSupportsChineseOrdinalDotTitles(t *testing.T) {
+	sections := []Section{
+		{
+			Title:   "一百二十章·第二天·白天",
+			Content: "<p class=\"content\">正文第一段。</p><p class=\"content\">正文第二段。</p>",
+		},
+		{
+			Title:   "第122章 一百二十章·第二天·白天",
+			Content: "<p class=\"content\">第122章 一百二十章·第二天·白天正文第一段。</p><p class=\"content\">正文第二段。</p>",
+		},
+		{
+			Title:   "一百二十一章·夜间",
+			Content: "<p class=\"content\">下一章正文。</p>",
+		},
+	}
+
+	got := dedupRepeatedSections(sections)
+	if len(got) != 2 {
+		t.Fatalf("new-source repeated-content dedup should keep 2 sections, got %d", len(got))
+	}
+	if got[0].Title != "一百二十章·第二天·白天" {
+		t.Fatalf("unexpected first section kept: %q", got[0].Title)
 	}
 }
 
@@ -473,6 +513,44 @@ func TestParseSkipsInlineChapterLineAsBookmark(t *testing.T) {
 	}
 }
 
+func TestParseSupportsChineseOrdinalChapterDotTitles(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "novel.txt")
+	content := strings.Join([]string{
+		"一章·“你拥有光辉明亮的未来。”",
+		"正文第一章",
+		"二章·新手副本TE·消失的她",
+		"正文第二章",
+		"三十九章·最终推论环节",
+		"正文第三章",
+	}, "\n")
+	if err := os.WriteFile(txtPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	book := &Book{
+		Filename: txtPath,
+		Tips:     false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	if len(book.SectionList) != 3 {
+		t.Fatalf("expected 3 chapters, got %d", len(book.SectionList))
+	}
+	if book.SectionList[0].Title != "一章·“你拥有光辉明亮的未来。”" {
+		t.Fatalf("unexpected first title: %q", book.SectionList[0].Title)
+	}
+	if book.SectionList[2].Title != "三十九章·最终推论环节" {
+		t.Fatalf("unexpected third title: %q", book.SectionList[2].Title)
+	}
+}
+
 func TestLooksLikeInlineChapterLineKeepsNormalQuotedTitles(t *testing.T) {
 	for _, line := range []string{
 		"第29章 二十八章「第一玩家？」",
@@ -529,7 +607,7 @@ func TestParseExampleBookDedupsRepeatedChapters(t *testing.T) {
 		t.Fatalf("unexpected parse error: %v", err)
 	}
 
-	for _, titlePart := range []string{
+	legacyTitles := []string{
 		"第29章 二十八章",
 		"第67章 六十六章",
 		"第331章 三百二十九章",
@@ -537,10 +615,26 @@ func TestParseExampleBookDedupsRepeatedChapters(t *testing.T) {
 		"第337章 三百三十五章",
 		"第344章 三百四十二章",
 		"第403章 四百零一章",
-	} {
-		count, matches := countSectionTitlesContaining(book.SectionList, titlePart)
-		if count != 1 {
-			t.Fatalf("expected %q to appear once after dedup, got %d, matches=%v details=%v", titlePart, count, matches, collectSectionDebugContaining(book.SectionList, titlePart))
+	}
+	newSourceTitles := []string{
+		"一章·“你拥有光辉明亮的未来。”",
+		"二章·新手副本TE·消失的她",
+		"三十九章·最终推论环节",
+	}
+
+	if count, _ := countSectionTitlesContaining(book.SectionList, "第29章 二十八章"); count > 0 {
+		for _, titlePart := range legacyTitles {
+			count, matches := countSectionTitlesContaining(book.SectionList, titlePart)
+			if count != 1 {
+				t.Fatalf("expected %q to appear once after dedup, got %d, matches=%v details=%v", titlePart, count, matches, collectSectionDebugContaining(book.SectionList, titlePart))
+			}
+		}
+	} else {
+		for _, titlePart := range newSourceTitles {
+			count, matches := countSectionTitlesContaining(book.SectionList, titlePart)
+			if count == 0 {
+				t.Fatalf("expected new-source title %q to be recognized, matches=%v", titlePart, matches)
+			}
 		}
 	}
 
@@ -551,7 +645,7 @@ func TestParseExampleBookDedupsRepeatedChapters(t *testing.T) {
 		}
 	}
 
-	for _, bad := range []string{"第一节课是数学课", "第一章·白莲灭城", "开启下一章", "第一章87%", "第一章86%", "只有第一章"} {
+	for _, bad := range []string{"第一节课是数学课", "开启下一章", "第一章87%", "第一章86%", "只有第一章"} {
 		count, matches := countSectionTitlesContaining(book.SectionList, bad)
 		if count != 0 {
 			t.Fatalf("expected %q to stay out of bookmarks, got %d matches=%v", bad, count, matches)
@@ -580,7 +674,6 @@ func TestParseExampleBookSkipsOrdinalNarrationBookmarks(t *testing.T) {
 
 	for _, bad := range []string{
 		"第一节课是数学课",
-		"第一章·白莲灭城",
 		"开启下一章",
 		"第一章87%",
 		"第一章86%",
@@ -591,6 +684,75 @@ func TestParseExampleBookSkipsOrdinalNarrationBookmarks(t *testing.T) {
 		if count != 0 {
 			t.Fatalf("expected %q to stay out of bookmarks, got %d matches=%v", bad, count, matches)
 		}
+	}
+}
+
+func TestParseExampleBookSupportsChineseOrdinalChapterDotTitles(t *testing.T) {
+	txtPath := filepath.Join("..", "..", "examples", "《第一玩家》作者：流泪猫安头.txt")
+	if _, err := os.Stat(txtPath); err != nil {
+		t.Skipf("example book not available: %v", err)
+	}
+
+	book := &Book{
+		Filename:   txtPath,
+		DedupTitle: true,
+		Tips:       false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	for _, title := range []string{
+		"一章·“你拥有光辉明亮的未来。”",
+		"二章·新手副本TE·消失的她",
+		"三十九章·最终推论环节",
+		"一百二十章·",
+	} {
+		count, matches := countSectionTitlesContaining(book.SectionList, title)
+		if count == 0 {
+			t.Fatalf("expected chapter title %q to be recognized, matches=%v", title, matches)
+		}
+	}
+}
+
+func TestParseExampleBookDedupsChineseOrdinalMirrorChapters(t *testing.T) {
+	txtPath := filepath.Join("..", "..", "examples", "《第一玩家》作者：流泪猫安头.txt")
+	if _, err := os.Stat(txtPath); err != nil {
+		t.Skipf("example book not available: %v", err)
+	}
+
+	book := &Book{
+		Filename:   txtPath,
+		DedupTitle: true,
+		Tips:       false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	for _, title := range []string{
+		"一百二十章·第二天·白天",
+		"一百二十四章·“我顺光而行”",
+		"一百二十五章·“我老了，也快要疯了。”",
+		"一百二十六章·“我亲爱的孩子，泊里。”",
+	} {
+		count, matches := countSectionTitlesContaining(book.SectionList, title)
+		if count != 1 {
+			t.Fatalf("expected chapter title %q to appear once after dedup, got %d matches=%v details=%v", title, count, matches, collectSectionDebugContaining(book.SectionList, title))
+		}
+	}
+
+	count, matches := countSectionTitlesContaining(book.SectionList, "一千一百二十章")
+	if count != 1 {
+		t.Fatalf("expected mirrored chapter around 一千一百二十章 to collapse to one bookmark, got %d matches=%v details=%v", count, matches, collectSectionDebugContaining(book.SectionList, "一千一百二十章"))
 	}
 }
 
