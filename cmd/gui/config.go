@@ -13,6 +13,8 @@ type guiConfig struct {
 	CoverFile   string `json:"cover_file"`
 	Author      string `json:"author"`
 	FormatIndex int    `json:"format_index"`
+	Match       string `json:"match"`
+	VolumeMatch string `json:"volume_match"`
 	Dedup       bool   `json:"dedup"`
 	Tips        bool   `json:"tips"`
 	Quotes      bool   `json:"quotes"`

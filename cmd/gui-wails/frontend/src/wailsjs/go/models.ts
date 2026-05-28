@@ -5,6 +5,8 @@ export namespace main {
 	    coverFile: string;
 	    author: string;
 	    format: string;
+	    match: string;
+	    volumeMatch: string;
 	    dedup: boolean;
 	    tips: boolean;
 	    quotes: boolean;
@@ -19,6 +21,8 @@ export namespace main {
 	        this.coverFile = source["coverFile"];
 	        this.author = source["author"];
 	        this.format = source["format"];
+	        this.match = source["match"];
+	        this.volumeMatch = source["volumeMatch"];
 	        this.dedup = source["dedup"];
 	        this.tips = source["tips"];
 	        this.quotes = source["quotes"];
@@ -29,6 +33,8 @@ export namespace main {
 	    cover_file: string;
 	    author: string;
 	    format_index: number;
+	    match: string;
+	    volume_match: string;
 	    dedup: boolean;
 	    tips: boolean;
 	    quotes: boolean;
@@ -43,6 +49,8 @@ export namespace main {
 	        this.cover_file = source["cover_file"];
 	        this.author = source["author"];
 	        this.format_index = source["format_index"];
+	        this.match = source["match"];
+	        this.volume_match = source["volume_match"];
 	        this.dedup = source["dedup"];
 	        this.tips = source["tips"];
 	        this.quotes = source["quotes"];

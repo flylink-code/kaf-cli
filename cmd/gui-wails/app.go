@@ -37,6 +37,8 @@ type convertRequest struct {
 	CoverFile   string `json:"coverFile"`
 	Author      string `json:"author"`
 	Format      string `json:"format"`
+	Match       string `json:"match"`
+	VolumeMatch string `json:"volumeMatch"`
 	Dedup       bool   `json:"dedup"`
 	Tips        bool   `json:"tips"`
 	Quotes      bool   `json:"quotes"`
@@ -153,6 +155,8 @@ func (req convertRequest) toGUIOptions() kafcli.GUIOptions {
 		Cover:           strings.TrimSpace(req.CoverFile),
 		Author:          strings.TrimSpace(req.Author),
 		Format:          format,
+		Match:           strings.TrimSpace(req.Match),
+		VolumeMatch:     strings.TrimSpace(req.VolumeMatch),
 		DedupTitle:      req.Dedup,
 		Tips:            req.Tips,
 		NormalizeQuotes: req.Quotes,

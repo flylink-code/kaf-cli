@@ -13,6 +13,7 @@ import { EventsOn } from "./wailsjs/runtime/runtime";
 const state = {
   converting: false,
   log: "",
+  moreOpen: false,
 };
 
 const app = document.querySelector("#app");
@@ -80,7 +81,7 @@ app.innerHTML = `
         </div>
 
         <div class="options-grid">
-          <label class="field">
+          <label class="field field-compact">
             <span>输出格式</span>
             <select id="format">
               <option value="all">all</option>
@@ -90,19 +91,51 @@ app.innerHTML = `
             </select>
           </label>
 
-          <label class="check-row">
-            <input id="dedup" type="checkbox" />
-            <span>合并重复目录行</span>
+          <div class="field field-compact">
+            <span>高级选项</span>
+            <button id="moreToggle" class="more-btn" type="button" aria-expanded="false">
+              <span>更多</span>
+              <span id="moreSummary" class="more-summary">已启用 1 项</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="morePanel" class="more-panel" hidden>
+          <div class="more-panel-head">
+            <div>
+              <p class="eyebrow">高级选项</p>
+              <h3>按书源启用</h3>
+            </div>
+            <button id="moreClose" class="more-close" type="button" aria-label="关闭高级选项">×</button>
+          </div>
+
+          <div class="more-checks">
+            <label class="check-row">
+              <input id="dedup" type="checkbox" />
+              <span>合并重复目录行</span>
+            </label>
+
+            <label class="check-row">
+              <input id="tips" type="checkbox" />
+              <span>添加制作说明</span>
+            </label>
+
+            <label class="check-row">
+              <input id="quotes" type="checkbox" />
+              <span>对话引号优化</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="rules-grid">
+          <label class="field field-wide">
+            <span>章节匹配规则</span>
+            <input id="match" placeholder="可选：自定义章节匹配正则；留空时自动识别" />
           </label>
 
-          <label class="check-row">
-            <input id="tips" type="checkbox" />
-            <span>添加制作说明</span>
-          </label>
-
-          <label class="check-row">
-            <input id="quotes" type="checkbox" />
-            <span>对话引号优化</span>
+          <label class="field field-wide">
+            <span>卷匹配规则</span>
+            <input id="volumeMatch" placeholder="可选：自定义卷匹配正则；填 false 可禁用卷识别" />
           </label>
         </div>
 
@@ -131,9 +164,15 @@ const els = {
   coverFile: document.getElementById("coverFile"),
   author: document.getElementById("author"),
   format: document.getElementById("format"),
+  match: document.getElementById("match"),
+  volumeMatch: document.getElementById("volumeMatch"),
   dedup: document.getElementById("dedup"),
   tips: document.getElementById("tips"),
   quotes: document.getElementById("quotes"),
+  moreToggle: document.getElementById("moreToggle"),
+  morePanel: document.getElementById("morePanel"),
+  moreClose: document.getElementById("moreClose"),
+  moreSummary: document.getElementById("moreSummary"),
   bookname: document.getElementById("bookname"),
   statusChip: document.getElementById("statusChip"),
   log: document.getElementById("log"),
@@ -153,6 +192,17 @@ function formatValueToIndex(value) {
 
 function renderStatus(text) {
   els.statusChip.textContent = text;
+}
+
+function renderMoreSummary() {
+  const enabled = [els.dedup.checked, els.tips.checked, els.quotes.checked].filter(Boolean).length;
+  els.moreSummary.textContent = enabled > 0 ? `已启用 ${enabled} 项` : "未启用";
+}
+
+function setMoreOpen(open) {
+  state.moreOpen = open;
+  els.morePanel.hidden = !open;
+  els.moreToggle.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
 function setBookname(text) {
@@ -178,6 +228,8 @@ async function saveConfig() {
     cover_file: els.coverFile.value.trim(),
     author: els.author.value.trim(),
     format_index: formatValueToIndex(els.format.value),
+    match: els.match.value.trim(),
+    volume_match: els.volumeMatch.value.trim(),
     dedup: els.dedup.checked,
     tips: els.tips.checked,
     quotes: els.quotes.checked,
@@ -242,6 +294,8 @@ async function convert() {
       coverFile: els.coverFile.value.trim(),
       author: els.author.value.trim(),
       format: els.format.value,
+      match: els.match.value.trim(),
+      volumeMatch: els.volumeMatch.value.trim(),
       dedup: els.dedup.checked,
       tips: els.tips.checked,
       quotes: els.quotes.checked,
@@ -259,9 +313,13 @@ async function bootstrap() {
   els.coverFile.value = cfg?.cover_file || "";
   els.author.value = cfg?.author || "";
   els.format.value = formatIndexToValue(cfg?.format_index ?? 0);
+  els.match.value = cfg?.match || "";
+  els.volumeMatch.value = cfg?.volume_match || "";
   els.dedup.checked = cfg?.dedup ?? true;
   els.tips.checked = cfg?.tips ?? true;
   els.quotes.checked = cfg?.quotes ?? false;
+  renderMoreSummary();
+  setMoreOpen(false);
   await inspectSource();
   setConverting(false);
 
@@ -288,6 +346,12 @@ els.pickTxt.addEventListener("click", pickTxt);
 els.pickCover.addEventListener("click", pickCover);
 els.convert.addEventListener("click", convert);
 els.openDir.addEventListener("click", openOutputDir);
+els.moreToggle.addEventListener("click", () => {
+  setMoreOpen(!state.moreOpen);
+});
+els.moreClose.addEventListener("click", () => {
+  setMoreOpen(false);
+});
 
 els.txtFile.addEventListener("change", async () => {
   await inspectSource();
@@ -296,8 +360,19 @@ els.txtFile.addEventListener("change", async () => {
 els.coverFile.addEventListener("change", saveConfig);
 els.author.addEventListener("change", saveConfig);
 els.format.addEventListener("change", saveConfig);
-els.dedup.addEventListener("change", saveConfig);
-els.tips.addEventListener("change", saveConfig);
-els.quotes.addEventListener("change", saveConfig);
+els.match.addEventListener("change", saveConfig);
+els.volumeMatch.addEventListener("change", saveConfig);
+els.dedup.addEventListener("change", async () => {
+  renderMoreSummary();
+  await saveConfig();
+});
+els.tips.addEventListener("change", async () => {
+  renderMoreSummary();
+  await saveConfig();
+});
+els.quotes.addEventListener("change", async () => {
+  renderMoreSummary();
+  await saveConfig();
+});
 
 bootstrap();

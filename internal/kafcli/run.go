@@ -24,6 +24,8 @@ type GUIOptions struct {
 	Cover           string
 	Author          string
 	Format          string
+	Match           string
+	VolumeMatch     string
 	DedupTitle      bool
 	Tips            bool
 	NormalizeQuotes bool
@@ -41,6 +43,12 @@ func NewBookGUI(opts GUIOptions) *Book {
 	}
 	if opts.Author != "" {
 		book.Author = opts.Author
+	}
+	if opts.Match != "" {
+		book.Match = opts.Match
+	}
+	if opts.VolumeMatch != "" {
+		book.VolumeMatch = opts.VolumeMatch
 	}
 	book.SetDefault()
 	if book.Format == "" {

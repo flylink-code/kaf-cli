@@ -31,12 +31,15 @@ type appWindow struct {
 	booknameLbl  *ui.Static
 	statusLbl    *ui.Static
 	formatCombo  *ui.ComboBox
-	chkDedup     *ui.CheckBox
-	chkTips      *ui.CheckBox
-	chkQuotes    *ui.CheckBox
+	btnMore      *ui.Button
 	btnConvert   *ui.Button
 	btnOpenDir   *ui.Button
 	txtLog       *ui.Edit
+	dedupTitle   bool
+	tipsEnabled  bool
+	quoteFix     bool
+	matchRule    string
+	volumeRule   string
 	converting   bool
 	lastOutDir   string
 	logBuf       logBuffer
@@ -71,8 +74,8 @@ func newAppWindow() *appWindow {
 	app := &appWindow{
 		wnd: ui.NewMain(
 			ui.OptsMain().
-				Title("kaf-cli 电子书转换").
-				Size(ui.Dpi(740, 760)).
+			Title("kaf-cli 电子书转换").
+			Size(ui.Dpi(740, 860)).
 				ClassIconId(1).
 				DropFiles(true),
 		),
@@ -203,28 +206,25 @@ func newAppWindow() *appWindow {
 		app.persistConfig()
 	})
 
-	app.chkDedup = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
-		Text("合并重复目录行").
-		Position(ui.Dpi(contentLeft, 368)).
-		State(co.BST_CHECKED))
-	app.chkTips = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
-		Text("添加制作说明").
-		Position(ui.Dpi(contentLeft+210, 368)).
-		State(co.BST_CHECKED))
-	app.chkQuotes = ui.NewCheckBox(app.wnd, ui.OptsCheckBox().
-		Text("对话引号优化（「」→ “”）").
-		Position(ui.Dpi(contentLeft, 402)))
+	app.btnMore = ui.NewButton(app.wnd, ui.OptsButton().
+		Text("更多选项").
+		Position(ui.Dpi(contentLeft, 366)).
+		Width(ui.DpiX(144)).
+		Height(ui.DpiY(30)))
+	app.btnMore.On().BnClicked(func() {
+		app.openAdvancedOptions()
+	})
 
 	app.btnConvert = ui.NewButton(app.wnd, ui.OptsButton().
 		Text("开始转换").
-		Position(ui.Dpi(contentLeft, 448)).
+		Position(ui.Dpi(contentLeft, 414)).
 		Width(ui.DpiX(144)).
 		Height(ui.DpiY(34)))
 	app.btnConvert.Hwnd().EnableWindow(false)
 
 	app.btnOpenDir = ui.NewButton(app.wnd, ui.OptsButton().
 		Text("打开输出目录").
-		Position(ui.Dpi(contentLeft+156, 448)).
+		Position(ui.Dpi(contentLeft+156, 414)).
 		Width(ui.DpiX(144)).
 		Height(ui.DpiY(34)))
 	app.btnOpenDir.Hwnd().EnableWindow(false)
@@ -236,32 +236,32 @@ func newAppWindow() *appWindow {
 
 	app.statusLbl = ui.NewStatic(app.wnd, ui.OptsStatic().
 		Text("准备就绪：选择 TXT 文件后即可开始转换。").
-		Position(ui.Dpi(contentLeft+320, 456)).
+		Position(ui.Dpi(contentLeft+320, 422)).
 		Size(ui.DpiX(rightEdge-(contentLeft+320)), ui.DpiY(18)).
 		Layout(ui.LAY_RESIZE_HOLD).
 		CtrlStyle(co.SS_LEFTNOWORDWRAP))
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
 		Text("转换日志").
-		Position(ui.Dpi(leftPad, 506)))
+		Position(ui.Dpi(leftPad, 474)))
 
 	app.headerHint = ui.NewStatic(app.wnd, ui.OptsStatic().
 		Text("这里会显示解析进度、输出结果和错误信息。").
-		Position(ui.Dpi(rightEdge-230, 506)).
+		Position(ui.Dpi(rightEdge-230, 474)).
 		Size(ui.DpiX(230), ui.DpiY(18)).
 		Layout(ui.LAY_MOVE_HOLD).
 		CtrlStyle(co.SS_LEFTNOWORDWRAP))
 
 	ui.NewStatic(app.wnd, ui.OptsStatic().
-		Position(ui.Dpi(leftPad, 532)).
+		Position(ui.Dpi(leftPad, 500)).
 		Size(ui.DpiX(rightEdge-leftPad), 2).
 		Layout(ui.LAY_RESIZE_HOLD).
 		CtrlStyle(co.SS_ETCHEDHORZ))
 
 	app.txtLog = ui.NewEdit(app.wnd, ui.OptsEdit().
-		Position(ui.Dpi(leftPad, 548)).
+		Position(ui.Dpi(leftPad, 516)).
 		Width(ui.DpiX(rightEdge-leftPad)).
-		Height(ui.DpiY(170)).
+		Height(ui.DpiY(306)).
 		Layout(ui.LAY_RESIZE_RESIZE).
 		CtrlStyle(co.ES_MULTILINE|co.ES_READONLY|co.ES_AUTOVSCROLL|co.ES_WANTRETURN))
 	setCueBanner(app.txtLog.Hwnd(), "转换开始后，这里会实时显示处理日志")
@@ -301,9 +301,11 @@ func (app *appWindow) applyConfig(cfg guiConfig) {
 	if cfg.FormatIndex >= 0 && cfg.FormatIndex < 4 {
 		app.formatCombo.SelectIndex(cfg.FormatIndex)
 	}
-	app.chkDedup.SetCheck(cfg.Dedup)
-	app.chkTips.SetCheck(cfg.Tips)
-	app.chkQuotes.SetCheck(cfg.Quotes)
+	app.dedupTitle = cfg.Dedup
+	app.tipsEnabled = cfg.Tips
+	app.quoteFix = cfg.Quotes
+	app.matchRule = strings.TrimSpace(cfg.Match)
+	app.volumeRule = strings.TrimSpace(cfg.VolumeMatch)
 	app.onTxtPathChanged()
 }
 
@@ -359,9 +361,11 @@ func (app *appWindow) currentConfig() guiConfig {
 		CoverFile:   strings.TrimSpace(app.coverFile.Text()),
 		Author:      strings.TrimSpace(app.authorEdit.Text()),
 		FormatIndex: app.formatCombo.SelectedIndex(),
-		Dedup:       app.chkDedup.IsChecked(),
-		Tips:        app.chkTips.IsChecked(),
-		Quotes:      app.chkQuotes.IsChecked(),
+		Match:       app.matchRule,
+		VolumeMatch: app.volumeRule,
+		Dedup:       app.dedupTitle,
+		Tips:        app.tipsEnabled,
+		Quotes:      app.quoteFix,
 	}
 }
 
@@ -377,15 +381,91 @@ func (app *appWindow) guiOptions() kafcli.GUIOptions {
 		Cover:           strings.TrimSpace(app.coverFile.Text()),
 		Author:          strings.TrimSpace(app.authorEdit.Text()),
 		Format:          format,
-		DedupTitle:      app.chkDedup.IsChecked(),
-		Tips:            app.chkTips.IsChecked(),
-		NormalizeQuotes: app.chkQuotes.IsChecked(),
+		Match:           app.matchRule,
+		VolumeMatch:     app.volumeRule,
+		DedupTitle:      app.dedupTitle,
+		Tips:            app.tipsEnabled,
+		NormalizeQuotes: app.quoteFix,
 	}
 }
 
 func (app *appWindow) appendLog(chunk string) {
 	text := app.logBuf.append(chunk)
 	app.txtLog.SetText(text)
+}
+
+func (app *appWindow) openAdvancedOptions() {
+	modal := ui.NewModal(app.wnd, ui.OptsModal().
+		Title("更多选项").
+		Size(ui.DpiX(640), ui.DpiY(340)).
+		ClassIconId(1))
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("这些选项更适合针对特定书源单独调整。").
+		Position(ui.Dpi(20, 18)))
+
+	chkDedup := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("合并重复目录行").
+		Position(ui.Dpi(20, 56)))
+	chkDedup.SetCheck(app.dedupTitle)
+
+	chkTips := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("添加制作说明").
+		Position(ui.Dpi(220, 56)))
+	chkTips.SetCheck(app.tipsEnabled)
+
+	chkQuotes := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("对话引号优化（「」→ “”）").
+		Position(ui.Dpi(20, 92)))
+	chkQuotes.SetCheck(app.quoteFix)
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("章节匹配规则").
+		Position(ui.Dpi(20, 138)))
+
+	matchEdit := ui.NewEdit(modal, ui.OptsEdit().
+		Text(app.matchRule).
+		Position(ui.Dpi(132, 134)).
+		Width(ui.DpiX(468)).
+		Height(ui.DpiY(28)))
+	setCueBanner(matchEdit.Hwnd(), "可选：自定义章节匹配正则；留空时自动识别")
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("卷匹配规则").
+		Position(ui.Dpi(20, 182)))
+
+	volumeEdit := ui.NewEdit(modal, ui.OptsEdit().
+		Text(app.volumeRule).
+		Position(ui.Dpi(132, 178)).
+		Width(ui.DpiX(468)).
+		Height(ui.DpiY(28)))
+	setCueBanner(volumeEdit.Hwnd(), "可选：自定义卷匹配正则；填 false 可禁用卷识别")
+
+	btnCancel := ui.NewButton(modal, ui.OptsButton().
+		Text("取消").
+		Position(ui.Dpi(364, 250)).
+		Width(ui.DpiX(108)).
+		Height(ui.DpiY(32)))
+	btnCancel.On().BnClicked(func() {
+		_, _ = modal.Hwnd().SendMessage(co.WM_CLOSE, 0, 0)
+	})
+
+	btnSave := ui.NewButton(modal, ui.OptsButton().
+		Text("保存").
+		Position(ui.Dpi(492, 250)).
+		Width(ui.DpiX(108)).
+		Height(ui.DpiY(32)))
+	btnSave.On().BnClicked(func() {
+		app.dedupTitle = chkDedup.IsChecked()
+		app.tipsEnabled = chkTips.IsChecked()
+		app.quoteFix = chkQuotes.IsChecked()
+		app.matchRule = strings.TrimSpace(matchEdit.Text())
+		app.volumeRule = strings.TrimSpace(volumeEdit.Text())
+		app.persistConfig()
+		_, _ = modal.Hwnd().SendMessage(co.WM_CLOSE, 0, 0)
+	})
+
+	modal.ShowModal()
 }
 
 func (app *appWindow) startConvert() {
