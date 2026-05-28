@@ -175,9 +175,7 @@ func (book *Book) Check(version string) error {
 		}
 		book.Cover = cover
 	default:
-		if exists, _ := isExists(book.Cover); !exists {
-			book.Cover = ""
-		}
+		book.Cover = resolveCoverPath(book.Filename, book.Cover)
 	}
 
 	// 编译正则表达式

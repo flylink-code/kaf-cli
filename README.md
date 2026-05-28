@@ -9,6 +9,7 @@
 ### 本 fork 新增
 
 - **Windows 图形版 `kaf-cli-gui.exe`**：选择 TXT/封面、作者、输出格式；拖拽导入；记住上次选项
+- **Wails 原型 `cmd/gui-wails`**：保留 Go 转换核心，尝试更现代的 WebView2 桌面界面
 - **章节目录去重 `-dedup-title`**：合并「目录行 + 正文标题行」重复章节（默认开启）
 - **对话引号优化 `-normalize-quotes`**：正文 `「」` 转为 `“”`（默认关闭，不影响【】）
 - **「第X部」分篇处理**：单独一行的 `第一部`、`第三部` 不再误入 EPUB 目录
@@ -72,6 +73,8 @@ Windows 压缩包内包含：
 日常使用可将 `build/windows-amd64/` 下的 exe 复制到工作目录，或直接把 txt 拖到该目录中的 `kaf-cli.exe` 上。
 
 > GUI 依赖 [windigo](https://github.com/rodrigocfd/windigo)，仅提供 64 位版本。
+>
+> 另提供一个基于 Wails 的原型入口：[`cmd/gui-wails`](cmd/gui-wails/README.md)。它默认挂在 `wailsgui` 构建标签下，不影响现有编译流程。
 
 ### 使用方法
 
@@ -89,7 +92,7 @@ Windows 压缩包内包含：
 1. 解压，把小说直接拖到 `kaf-cli.exe` 文件上面
 2. 等转换完，目录下会生成 epub、azw3、mobi 文件
    - mobi 格式需要有 kindlegen 才会生成（windows、mac 版本发布包通常自带）
-3. 自定义封面：拖拽模式下，若目录下有 `cover.png` 会自动添加为封面（支持 jpg、png）
+3. 自定义封面：拖拽模式下，若目录下有 `cover.png`、`cover.jpg` 或 `cover.jpeg` 会自动添加为封面
 4. 其它自定义功能请用命令行模式
 
 ### 效果
@@ -110,7 +113,7 @@ Usage of kaf-cli:
   -bottom string
         段落间距(单位可以为 em、px) (default "1em")
   -cover string
-        封面图片可为: 本地图片, 和 orly。设置为 orly 时生成 orly 风格的封面, 需要连接网络。(default "cover.png")
+        封面图片可为: 本地图片, 和 orly。设置为 orly 时生成 orly 风格的封面, 需要连接网络。默认会优先尝试 cover.png，其次 cover.jpg、cover.jpeg。(default "cover.png")
   -cover-orly-color string
         orly 封面的主题色, 可以为 1-16 和 hex 格式的颜色代码, 不填时随机
   -cover-orly-idx int

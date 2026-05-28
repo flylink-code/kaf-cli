@@ -134,6 +134,54 @@ func TestCheckMissingCoverFallsBackToNoCover(t *testing.T) {
 	}
 }
 
+func TestCheckDefaultCoverFallsBackToJPG(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "book.txt")
+	if err := os.WriteFile(txtPath, []byte("第1章 开头\n正文\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jpgPath := filepath.Join(dir, "cover.jpg")
+	if err := os.WriteFile(jpgPath, []byte("fake jpg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	book := &Book{
+		Filename: txtPath,
+	}
+	book.SetDefault()
+
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if book.Cover != jpgPath {
+		t.Fatalf("expected jpg cover fallback %q, got %q", jpgPath, book.Cover)
+	}
+}
+
+func TestCheckDefaultCoverFallsBackToJPEG(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "book.txt")
+	if err := os.WriteFile(txtPath, []byte("第1章 开头\n正文\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jpegPath := filepath.Join(dir, "cover.jpeg")
+	if err := os.WriteFile(jpegPath, []byte("fake jpeg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	book := &Book{
+		Filename: txtPath,
+	}
+	book.SetDefault()
+
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if book.Cover != jpegPath {
+		t.Fatalf("expected jpeg cover fallback %q, got %q", jpegPath, book.Cover)
+	}
+}
+
 func TestParseMissingFileReturnsError(t *testing.T) {
 	book := &Book{
 		Filename: filepath.Join(t.TempDir(), "missing.txt"),

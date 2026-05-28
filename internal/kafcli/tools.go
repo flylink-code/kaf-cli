@@ -45,6 +45,30 @@ func resolveOutputPath(txtPath, out string) string {
 	return filepath.Join(filepath.Dir(txtPath), filepath.Base(out))
 }
 
+// resolveCoverPath 尝试解析封面路径；默认封面支持 cover.png / cover.jpg / cover.jpeg。
+func resolveCoverPath(txtPath, cover string) string {
+	cover = strings.TrimSpace(cover)
+	if cover == "" {
+		return ""
+	}
+	candidates := []string{cover}
+	if cover == "cover.png" {
+		candidates = []string{"cover.png", "cover.jpg", "cover.jpeg"}
+	}
+
+	baseDir := filepath.Dir(txtPath)
+	for _, candidate := range candidates {
+		path := candidate
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(baseDir, path)
+		}
+		if exists, _ := isExists(path); exists {
+			return path
+		}
+	}
+	return ""
+}
+
 // FilenameMeta 从 txt 路径推测书名与作者（规则与 Check 一致）。
 func FilenameMeta(filename string) (bookname, author string) {
 	if filenameMetaReg.MatchString(filename) {
