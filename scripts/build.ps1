@@ -75,6 +75,23 @@ if (Test-Path $wailsProject) {
         Warn-Build "Wails CLI not found, skip kaf-cli-wails.exe"
     } else {
         Write-Host ">> building $wailsOut ..."
+        $frontendDir = Join-Path $wailsProject "frontend"
+        if (Test-Path $frontendDir) {
+            Write-Host "   building frontend assets..."
+            Push-Location $frontendDir
+            try {
+                if (Test-Path "package-lock.json") {
+                    npm ci
+                } else {
+                    npm install
+                }
+                if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+                npm run build
+                if ($LASTEXITCODE -ne 0) { throw "npm run build failed" }
+            } finally {
+                Pop-Location
+            }
+        }
         Push-Location $wailsProject
         try {
             & $wails.Source build -m -tags wailsgui

@@ -39,7 +39,12 @@ jobs:
 
       - name: Build release artifacts
         shell: pwsh
-        run: .\scripts\build.ps1 -Version "${{ github.ref_name }}"
+        run: |
+          Set-Location cmd/gui-wails/frontend
+          npm ci
+          npm run build
+          Set-Location $env:GITHUB_WORKSPACE
+          .\scripts\build.ps1 -Version "${{ github.ref_name }}"
 
       - name: Create release archive directory
         shell: pwsh
