@@ -46,9 +46,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           Copy-Item build\windows-amd64\kaf-cli.exe release\kaf-cli-windows-amd64.exe -Force
-          Copy-Item build\windows-amd64\kaf-cli-gui.exe release\kaf-cli-gui-windows-amd64.exe -Force
           if (Test-Path build\windows-amd64\kaf-cli-wails.exe) {
             Copy-Item build\windows-amd64\kaf-cli-wails.exe release\kaf-cli-wails-windows-amd64.exe -Force
+          } else {
+            throw "kaf-cli-wails.exe not found"
           }
           Copy-Item build\windows-386\kaf-cli.exe release\kaf-cli-windows-386.exe -Force
 
@@ -57,7 +58,6 @@ jobs:
         with:
           files: |
             release/kaf-cli-windows-amd64.exe
-            release/kaf-cli-gui-windows-amd64.exe
             release/kaf-cli-wails-windows-amd64.exe
             release/kaf-cli-windows-386.exe
           generate_release_notes: true

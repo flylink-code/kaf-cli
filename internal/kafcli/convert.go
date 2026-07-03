@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/ystyle/kaf-cli/internal/kafcli/ai"
 )
 
 type Book struct {
@@ -44,11 +46,27 @@ type Book struct {
 	DedupTitle      bool      // 合并连续重复的章节目录行
 	NormalizeQuotes bool      // 正文「」转为弯引号 “”
 	SectionList     []Section // 章节
+	// AI 后处理选项；零值表示关闭。仅在 GUI/Wails 流程注入，CLI 不受影响。
+	AIOptions  AIRefineOptions
+	AISummary  string // AI 生成的简介，供 epub 等格式写入描述字段
+	AITags     string // AI 生成的标签
 	Decoder        *encoding.Decoder
 	PageStylesFile string
 	Reg            *regexp.Regexp
 	VolumeReg      *regexp.Regexp
 	version        string
+}
+
+// AIRefineOptions 是 Book 持有的 AI 后处理配置。
+// Client 为 nil 或 Enabled=false 时跳过整个 AI 流程。
+type AIRefineOptions struct {
+	Enabled      bool
+	Client       *ai.Client
+	SampleChars  int
+	DoStructure  bool
+	DoTypography bool
+	DoNoise      bool
+	DoMetadata   bool
 }
 
 type Section struct {

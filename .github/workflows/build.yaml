@@ -46,13 +46,12 @@ jobs:
           ${GOBIN}/rsrc -arch amd64 -manifest kaf-cli.exe.manifest -ico ./assets/kaf.ico -o kaf-cli.syso
           GOOS=windows GOARCH=386     go build -ldflags "$flag" -o build/windows-386/kaf-cli.exe   ./cmd
           GOOS=windows GOARCH=amd64   go build -ldflags "$flag" -o build/windows-amd64/kaf-cli.exe ./cmd
-          GOOS=windows GOARCH=amd64   go build -ldflags "$flag -H windowsgui" -o build/windows-amd64/kaf-cli-gui.exe ./cmd/gui
 
       - name: compression zip
         run: |
           hash=`git rev-list --tags --max-count=1`
           version=`git describe --tags $hash`
-          zip -j kaf-cli_${version}_windows_amd64.zip build/windows-amd64/kaf-cli.exe build/windows-amd64/kaf-cli-gui.exe windows/kindlegen.exe scripts/注册右键菜单.ps1
+          zip -j kaf-cli_${version}_windows_amd64.zip build/windows-amd64/kaf-cli.exe windows/kindlegen.exe scripts/注册右键菜单.ps1
           zip -j kaf-cli_${version}_windows_386.zip   build/windows-386/kaf-cli.exe windows/kindlegen.exe
           zip -j kaf-cli_${version}_darwin_amd64.zip  build/darwin-amd64/kaf-cli darwin/kindlegen
           zip -j kaf-cli_${version}_darwin_arm64.zip  build/darwin-arm64/kaf-cli darwin/kindlegen

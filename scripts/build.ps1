@@ -66,23 +66,6 @@ function Copy-BuildArtifact {
 
 Build-Bin (Join-Path $outAmd64 "kaf-cli.exe") "./cmd"
 
-$icon = Join-Path $Root "assets\kaf.ico"
-$guiSyso = Join-Path $Root "cmd\gui\kaf-gui.syso"
-if (Test-Path $icon) {
-    $rsrc = Get-Command rsrc -ErrorAction SilentlyContinue
-    if (-not $rsrc) {
-        & go install github.com/akavel/rsrc@latest 2>$null
-        $rsrc = Get-Command rsrc -ErrorAction SilentlyContinue
-    }
-    if ($rsrc) {
-        & $rsrc.Source -arch amd64 -ico $icon -o $guiSyso 2>$null
-    } else {
-        & go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico $icon -o $guiSyso 2>$null
-    }
-}
-
-Build-Bin (Join-Path $outAmd64 "kaf-cli-gui.exe") "./cmd/gui" "-H windowsgui"
-
 $wailsProject = Join-Path $Root "cmd\gui-wails"
 $wailsOut = Join-Path $outAmd64 "kaf-cli-wails.exe"
 if (Test-Path $wailsProject) {

@@ -1,5 +1,100 @@
 export namespace main {
 	
+	export class aiTasks {
+	    structure: boolean;
+	    typography: boolean;
+	    noise: boolean;
+	    metadata: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new aiTasks(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.structure = source["structure"];
+	        this.typography = source["typography"];
+	        this.noise = source["noise"];
+	        this.metadata = source["metadata"];
+	    }
+	}
+	export class aiConfig {
+	    enabled: boolean;
+	    base_url: string;
+	    api_key: string;
+	    model: string;
+	    sample_chars: number;
+	    tasks: aiTasks;
+	
+	    static createFrom(source: any = {}) {
+	        return new aiConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	        this.model = source["model"];
+	        this.sample_chars = source["sample_chars"];
+	        this.tasks = this.convertValues(source["tasks"], aiTasks);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class aiTestResult {
+	    ok: boolean;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new aiTestResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.message = source["message"];
+	    }
+	}
+	export class convertAIRequest {
+	    enabled: boolean;
+	    structure: boolean;
+	    typography: boolean;
+	    noise: boolean;
+	    metadata: boolean;
+	    sampleChars: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new convertAIRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.structure = source["structure"];
+	        this.typography = source["typography"];
+	        this.noise = source["noise"];
+	        this.metadata = source["metadata"];
+	        this.sampleChars = source["sampleChars"];
+	    }
+	}
 	export class convertRequest {
 	    txtFile: string;
 	    coverFile: string;
@@ -10,6 +105,7 @@ export namespace main {
 	    dedup: boolean;
 	    tips: boolean;
 	    quotes: boolean;
+	    ai: convertAIRequest;
 	
 	    static createFrom(source: any = {}) {
 	        return new convertRequest(source);
@@ -26,7 +122,26 @@ export namespace main {
 	        this.dedup = source["dedup"];
 	        this.tips = source["tips"];
 	        this.quotes = source["quotes"];
+	        this.ai = this.convertValues(source["ai"], convertAIRequest);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class guiConfig {
 	    txt_file: string;
@@ -38,6 +153,7 @@ export namespace main {
 	    dedup: boolean;
 	    tips: boolean;
 	    quotes: boolean;
+	    ai: aiConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new guiConfig(source);
@@ -54,7 +170,26 @@ export namespace main {
 	        this.dedup = source["dedup"];
 	        this.tips = source["tips"];
 	        this.quotes = source["quotes"];
+	        this.ai = this.convertValues(source["ai"], aiConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class sourceInsight {
 	    bookname: string;

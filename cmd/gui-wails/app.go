@@ -11,8 +11,10 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	kafcli "github.com/ystyle/kaf-cli/internal/kafcli"
+	"github.com/ystyle/kaf-cli/internal/kafcli/ai"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -33,15 +35,27 @@ type sourceInsight struct {
 }
 
 type convertRequest struct {
-	TxtFile     string `json:"txtFile"`
-	CoverFile   string `json:"coverFile"`
-	Author      string `json:"author"`
-	Format      string `json:"format"`
-	Match       string `json:"match"`
-	VolumeMatch string `json:"volumeMatch"`
-	Dedup       bool   `json:"dedup"`
-	Tips        bool   `json:"tips"`
-	Quotes      bool   `json:"quotes"`
+	TxtFile     string    `json:"txtFile"`
+	CoverFile   string    `json:"coverFile"`
+	Author      string    `json:"author"`
+	Format      string    `json:"format"`
+	Match       string    `json:"match"`
+	VolumeMatch string    `json:"volumeMatch"`
+	Dedup       bool      `json:"dedup"`
+	Tips        bool      `json:"tips"`
+	Quotes      bool      `json:"quotes"`
+	// AI 选项中的密钥不从请求取，而从持久化配置读，避免明文在前端流转。
+	AI convertAIRequest `json:"ai"`
+}
+
+// convertAIRequest 是转换时携带的 AI 开关；密钥始终从持久化配置注入。
+type convertAIRequest struct {
+	Enabled     bool `json:"enabled"`
+	Structure   bool `json:"structure"`
+	Typography  bool `json:"typography"`
+	Noise       bool `json:"noise"`
+	Metadata    bool `json:"metadata"`
+	SampleChars int  `json:"sampleChars"`
 }
 
 func NewApp() *App {
@@ -57,8 +71,61 @@ func (a *App) GetConfig() guiConfig {
 }
 
 func (a *App) SaveConfig(cfg guiConfig) error {
+	// 前端 saveConfig 不含 ai 段；须合并已有配置，避免覆盖 GUI/AI 设置里保存的密钥。
+	existing := loadGUIConfig()
+	existing.TxtFile = cfg.TxtFile
+	existing.CoverFile = cfg.CoverFile
+	existing.Author = cfg.Author
+	existing.FormatIndex = cfg.FormatIndex
+	existing.Match = cfg.Match
+	existing.VolumeMatch = cfg.VolumeMatch
+	existing.Dedup = cfg.Dedup
+	existing.Tips = cfg.Tips
+	existing.Quotes = cfg.Quotes
+	saveGUIConfig(existing)
+	return nil
+}
+
+// GetAIConfig 返回持久化的 AI 配置（含密钥，仅供本地 UI 回填）。
+func (a *App) GetAIConfig() aiConfig {
+	cfg := loadGUIConfig()
+	return cfg.AI
+}
+
+// SaveAIConfig 单独保存 AI 配置段，保留其余字段。
+func (a *App) SaveAIConfig(aiCfg aiConfig) error {
+	cfg := loadGUIConfig()
+	cfg.AI = aiCfg
 	saveGUIConfig(cfg)
 	return nil
+}
+
+// TestAIConnection 用给定配置发起一次最小请求，验证连通性。
+// 返回 ok=true 与模型实际回显；失败时 ok=false 并带错误信息。
+func (a *App) TestAIConnection(aiCfg aiConfig) aiTestResult {
+	client := ai.NewClient(ai.ClientConfig{
+		BaseURL: aiCfg.BaseURL,
+		APIKey:  aiCfg.APIKey,
+		Model:   aiCfg.Model,
+		Timeout: 30 * time.Second,
+	})
+	if !client.Ready() {
+		return aiTestResult{OK: false, Message: "缺少 API Key 或 Model"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	resp, err := client.Chat(ctx,
+		"你是连通性测试助手，请回复『连接成功』四个字。",
+		"ping", false)
+	if err != nil {
+		return aiTestResult{OK: false, Message: err.Error()}
+	}
+	return aiTestResult{OK: true, Message: resp}
+}
+
+type aiTestResult struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
 }
 
 func (a *App) PickTXT() (string, error) {
@@ -150,7 +217,7 @@ func (req convertRequest) toGUIOptions() kafcli.GUIOptions {
 			break
 		}
 	}
-	return kafcli.GUIOptions{
+	opts := kafcli.GUIOptions{
 		Filename:        strings.TrimSpace(req.TxtFile),
 		Cover:           strings.TrimSpace(req.CoverFile),
 		Author:          strings.TrimSpace(req.Author),
@@ -161,6 +228,26 @@ func (req convertRequest) toGUIOptions() kafcli.GUIOptions {
 		Tips:            req.Tips,
 		NormalizeQuotes: req.Quotes,
 	}
+	// AI：开关取自请求，密钥与模型取自持久化配置（避免明文在前端流转）。
+	// Enabled 保留用户意图；是否真正调用由核心库依据 Client.Ready() 决定并打日志。
+	if req.AI.Enabled {
+		saved := loadGUIConfig().AI
+		client := ai.NewClient(ai.ClientConfig{
+			BaseURL: saved.BaseURL,
+			APIKey:  saved.APIKey,
+			Model:   saved.Model,
+		})
+		opts.AI = kafcli.AIRefineOptions{
+			Enabled:      true,
+			Client:       client,
+			SampleChars:  req.AI.SampleChars,
+			DoStructure:  req.AI.Structure,
+			DoTypography: req.AI.Typography,
+			DoNoise:      req.AI.Noise,
+			DoMetadata:   req.AI.Metadata,
+		}
+	}
+	return opts
 }
 
 func findCover(txtPath string) string {

@@ -37,6 +37,10 @@ func (convert EpubConverter) Build(book Book) error {
 	e.SetLang(book.Lang)
 	// Set the author
 	e.SetAuthor(book.Author)
+	// AI 生成的简介（如有）写入 epub 描述字段
+	if book.AISummary != "" {
+		e.SetDescription(book.AISummary)
+	}
 
 	pageStylesFile := filepath.Join(tempDir, "page_styles.css")
 	var epubcss = cssContent

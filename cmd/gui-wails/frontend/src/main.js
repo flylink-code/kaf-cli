@@ -2,86 +2,72 @@ import "./style.css";
 import {
   Convert,
   GetConfig,
+  GetAIConfig,
   InspectSource,
   OpenLastOutputDir,
   PickCover,
   PickTXT,
+  SaveAIConfig,
   SaveConfig,
+  TestAIConnection,
 } from "./wailsjs/go/main/App";
 import { EventsOn } from "./wailsjs/runtime/runtime";
 
 const state = {
   converting: false,
   log: "",
-  moreOpen: false,
 };
 
 const app = document.querySelector("#app");
 
 app.innerHTML = `
   <div class="shell">
-    <aside class="hero-card">
-      <div class="hero-badge">kaf-cli</div>
-      <h1>电子书转换工作台</h1>
-      <p class="hero-copy">
-        用更轻松的方式，把 TXT 整理成 EPUB、MOBI、AZW3。自动识别书名、作者、封面，并实时输出转换日志。
-      </p>
-      <div class="hero-list">
-        <div>拖拽 TXT 或手动选择</div>
-        <div>默认封面支持 PNG / JPG / JPEG</div>
-        <div>保留现有 Go 转换核心逻辑</div>
+    <header class="topbar">
+      <div class="topbar-brand">
+        <span class="hero-badge">kaf-cli</span>
+        <h1>电子书转换</h1>
       </div>
-    </aside>
+      <div class="topbar-actions">
+        <button id="openSettings" class="ghost-btn" type="button">
+          设置
+          <span id="aiStatusChip" class="inline-chip">AI关</span>
+        </button>
+        <div id="statusChip" class="status-chip">准备就绪</div>
+      </div>
+    </header>
 
     <main class="workspace">
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">素材</p>
-            <h2>输入与识别</h2>
-          </div>
-          <div id="statusChip" class="status-chip">准备就绪</div>
-        </div>
-
+      <section class="panel panel-main">
         <div class="form-grid">
           <label class="field field-wide">
             <span>TXT 文件</span>
             <div class="input-row">
-              <input id="txtFile" placeholder="选择小说 TXT 文件，支持拖拽导入" />
-              <button id="pickTxt" class="ghost-btn" type="button">选择 TXT</button>
+              <input id="txtFile" placeholder="选择小说 TXT 文件" />
+              <button id="pickTxt" class="ghost-btn" type="button">选择</button>
             </div>
           </label>
 
-          <label class="field field-wide">
+          <label class="field">
             <span>封面图片</span>
             <div class="input-row">
-              <input id="coverFile" placeholder="可选，留空时会尝试自动匹配同名封面" />
-              <button id="pickCover" class="ghost-btn" type="button">选择封面</button>
+              <input id="coverFile" placeholder="可选，留空自动匹配" />
+              <button id="pickCover" class="ghost-btn" type="button">选择</button>
             </div>
           </label>
 
           <label class="field">
             <span>作者</span>
-            <input id="author" placeholder="可留空，程序会尽量从文件名自动提取" />
+            <input id="author" placeholder="可留空，自动从文件名提取" />
           </label>
 
           <div class="field meta-card">
-            <span>自动识别书名</span>
-            <strong id="bookname">书名将在选择 TXT 后显示</strong>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">参数</p>
-            <h2>转换选项</h2>
+            <span>书名</span>
+            <strong id="bookname">选择 TXT 后显示</strong>
           </div>
         </div>
 
-        <div class="options-grid">
-          <label class="field field-compact">
+        <div class="action-row action-row-main">
+          <label class="field field-inline">
             <span>输出格式</span>
             <select id="format">
               <option value="all">all</option>
@@ -90,72 +76,118 @@ app.innerHTML = `
               <option value="azw3">azw3</option>
             </select>
           </label>
-
-          <div class="field field-compact">
-            <span>高级选项</span>
-            <button id="moreToggle" class="more-btn" type="button" aria-expanded="false">
-              <span>更多</span>
-              <span id="moreSummary" class="more-summary">已启用 1 项</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="morePanel" class="more-panel" hidden>
-          <div class="more-panel-head">
-            <div>
-              <p class="eyebrow">高级选项</p>
-              <h3>按书源启用</h3>
-            </div>
-            <button id="moreClose" class="more-close" type="button" aria-label="关闭高级选项">×</button>
-          </div>
-
-          <div class="more-checks">
-            <label class="check-row">
-              <input id="dedup" type="checkbox" />
-              <span>合并重复目录行</span>
-            </label>
-
-            <label class="check-row">
-              <input id="tips" type="checkbox" />
-              <span>添加制作说明</span>
-            </label>
-
-            <label class="check-row">
-              <input id="quotes" type="checkbox" />
-              <span>对话引号优化</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="rules-grid">
-          <label class="field field-wide">
-            <span>章节匹配规则</span>
-            <input id="match" placeholder="可选：自定义章节匹配正则；留空时自动识别" />
-          </label>
-
-          <label class="field field-wide">
-            <span>卷匹配规则</span>
-            <input id="volumeMatch" placeholder="可选：自定义卷匹配正则；填 false 可禁用卷识别" />
-          </label>
-        </div>
-
-        <div class="action-row">
           <button id="convert" class="primary-btn" type="button">开始转换</button>
           <button id="openDir" class="ghost-btn" type="button" disabled>打开输出目录</button>
         </div>
       </section>
 
       <section class="panel panel-log">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">输出</p>
-            <h2>转换日志</h2>
-          </div>
-          <div class="panel-tip">这里会实时显示解析进度、输出结果和错误信息。</div>
+        <div class="panel-head panel-head-compact">
+          <h2>转换日志</h2>
         </div>
         <pre id="log" class="log-box">等待开始转换…</pre>
       </section>
     </main>
+  </div>
+
+  <div id="settingsModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">配置</p>
+          <h2 id="settingsTitle">设置</h2>
+        </div>
+        <button id="settingsClose" class="modal-close" type="button" aria-label="关闭">×</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-pane">
+          <h3 class="settings-section-title">转换选项</h3>
+          <div class="more-checks more-checks-modal">
+            <label class="check-row">
+              <input id="dedup" type="checkbox" />
+              <span>合并重复目录行</span>
+            </label>
+            <label class="check-row">
+              <input id="tips" type="checkbox" />
+              <span>添加制作说明</span>
+            </label>
+            <label class="check-row">
+              <input id="quotes" type="checkbox" />
+              <span>对话引号优化</span>
+            </label>
+          </div>
+          <label class="field field-wide">
+            <span>章节匹配规则</span>
+            <input id="match" placeholder="留空自动识别；例：第.{1,8}章" />
+          </label>
+          <label class="field field-wide">
+            <span>卷匹配规则</span>
+            <input id="volumeMatch" placeholder="留空自动识别；填 false 禁用卷识别" />
+          </label>
+
+          <h3 class="settings-section-title">AI 优化</h3>
+          <label class="check-row check-row-wide">
+            <input id="aiEnabled" type="checkbox" />
+            <span>启用 AI 后处理</span>
+          </label>
+
+          <div class="options-grid options-grid-modal">
+            <label class="field">
+              <span>Base URL</span>
+              <input id="aiBaseURL" placeholder="https://api.deepseek.com/v1" />
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <input id="aiModel" placeholder="deepseek-chat" />
+            </label>
+          </div>
+
+          <label class="field field-wide">
+            <span>API Key</span>
+            <div class="input-row">
+              <input id="aiAPIKey" type="password" placeholder="sk-...（仅本地保存）" />
+              <button id="aiToggleKey" class="ghost-btn" type="button">显示</button>
+            </div>
+          </label>
+
+          <div class="more-checks more-checks-modal">
+            <label class="check-row">
+              <input id="aiStructure" type="checkbox" />
+              <span>章节结构（疑点标题）</span>
+            </label>
+            <label class="check-row">
+              <input id="aiTypography" type="checkbox" />
+              <span>排版修正</span>
+            </label>
+            <label class="check-row">
+              <input id="aiNoise" type="checkbox" />
+              <span>噪音清理</span>
+            </label>
+            <label class="check-row">
+              <input id="aiMetadata" type="checkbox" />
+              <span>书籍简介</span>
+            </label>
+          </div>
+
+          <label class="field field-compact">
+            <span>正文抽样上限（0=不上传正文）</span>
+            <input id="aiSampleChars" type="number" min="0" step="500" placeholder="0" />
+          </label>
+
+          <div class="action-row action-row-modal">
+            <button id="aiTest" class="ghost-btn" type="button">测试连接</button>
+            <span id="aiTestResult" class="ai-test-result"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="settingsSave" class="primary-btn" type="button">保存</button>
+        <button id="settingsCancel" class="ghost-btn" type="button">取消</button>
+      </div>
+    </div>
   </div>
 `;
 
@@ -169,17 +201,31 @@ const els = {
   dedup: document.getElementById("dedup"),
   tips: document.getElementById("tips"),
   quotes: document.getElementById("quotes"),
-  moreToggle: document.getElementById("moreToggle"),
-  morePanel: document.getElementById("morePanel"),
-  moreClose: document.getElementById("moreClose"),
-  moreSummary: document.getElementById("moreSummary"),
   bookname: document.getElementById("bookname"),
   statusChip: document.getElementById("statusChip"),
+  aiStatusChip: document.getElementById("aiStatusChip"),
   log: document.getElementById("log"),
   pickTxt: document.getElementById("pickTxt"),
   pickCover: document.getElementById("pickCover"),
   convert: document.getElementById("convert"),
   openDir: document.getElementById("openDir"),
+  openSettings: document.getElementById("openSettings"),
+  settingsModal: document.getElementById("settingsModal"),
+  settingsClose: document.getElementById("settingsClose"),
+  settingsCancel: document.getElementById("settingsCancel"),
+  settingsSave: document.getElementById("settingsSave"),
+  aiEnabled: document.getElementById("aiEnabled"),
+  aiBaseURL: document.getElementById("aiBaseURL"),
+  aiModel: document.getElementById("aiModel"),
+  aiAPIKey: document.getElementById("aiAPIKey"),
+  aiToggleKey: document.getElementById("aiToggleKey"),
+  aiStructure: document.getElementById("aiStructure"),
+  aiTypography: document.getElementById("aiTypography"),
+  aiNoise: document.getElementById("aiNoise"),
+  aiMetadata: document.getElementById("aiMetadata"),
+  aiSampleChars: document.getElementById("aiSampleChars"),
+  aiTest: document.getElementById("aiTest"),
+  aiTestResult: document.getElementById("aiTestResult"),
 };
 
 function formatIndexToValue(index) {
@@ -194,19 +240,14 @@ function renderStatus(text) {
   els.statusChip.textContent = text;
 }
 
-function renderMoreSummary() {
-  const enabled = [els.dedup.checked, els.tips.checked, els.quotes.checked].filter(Boolean).length;
-  els.moreSummary.textContent = enabled > 0 ? `已启用 ${enabled} 项` : "未启用";
-}
-
-function setMoreOpen(open) {
-  state.moreOpen = open;
-  els.morePanel.hidden = !open;
-  els.moreToggle.setAttribute("aria-expanded", open ? "true" : "false");
+function renderAIStatus() {
+  const on = els.aiEnabled.checked;
+  els.aiStatusChip.textContent = on ? "AI开" : "AI关";
+  els.aiStatusChip.classList.toggle("is-on", on);
 }
 
 function setBookname(text) {
-  els.bookname.textContent = text || "书名将在选择 TXT 后显示";
+  els.bookname.textContent = text || "选择 TXT 后显示";
 }
 
 function appendLog(chunk) {
@@ -222,6 +263,74 @@ function setConverting(converting) {
   els.pickCover.disabled = converting;
 }
 
+function openSettingsModal() {
+  els.settingsModal.hidden = false;
+  els.aiTestResult.textContent = "";
+}
+
+function closeSettingsModal() {
+  els.settingsModal.hidden = true;
+}
+
+function defaultAIConfig() {
+  return {
+    enabled: false,
+    base_url: "",
+    api_key: "",
+    model: "",
+    sample_chars: 0,
+    tasks: { structure: true, typography: false, noise: false, metadata: false },
+  };
+}
+
+function collectAIConfig() {
+  return {
+    enabled: els.aiEnabled.checked,
+    base_url: els.aiBaseURL.value.trim(),
+    api_key: els.aiAPIKey.value.trim(),
+    model: els.aiModel.value.trim(),
+    sample_chars: Number(els.aiSampleChars.value) || 0,
+    tasks: {
+      structure: els.aiStructure.checked,
+      typography: els.aiTypography.checked,
+      noise: els.aiNoise.checked,
+      metadata: els.aiMetadata.checked,
+    },
+  };
+}
+
+function fillAIConfig(cfg) {
+  const ai = cfg?.ai || {};
+  els.aiEnabled.checked = !!ai.enabled;
+  els.aiBaseURL.value = ai.base_url || "";
+  els.aiModel.value = ai.model || "";
+  els.aiAPIKey.value = ai.api_key || "";
+  els.aiSampleChars.value = ai.sample_chars || 0;
+  const tasks = ai.tasks || {};
+  els.aiStructure.checked = tasks.structure ?? true;
+  els.aiTypography.checked = !!tasks.typography;
+  els.aiNoise.checked = !!tasks.noise;
+  els.aiMetadata.checked = !!tasks.metadata;
+  renderAIStatus();
+}
+
+function collectAIRequest() {
+  const cfg = collectAIConfig();
+  return {
+    enabled: cfg.enabled,
+    structure: cfg.tasks.structure,
+    typography: cfg.tasks.typography,
+    noise: cfg.tasks.noise,
+    metadata: cfg.tasks.metadata,
+    sampleChars: cfg.sample_chars,
+  };
+}
+
+async function saveAIConfig() {
+  await SaveAIConfig(collectAIConfig());
+  renderAIStatus();
+}
+
 async function saveConfig() {
   await SaveConfig({
     txt_file: els.txtFile.value.trim(),
@@ -234,6 +343,26 @@ async function saveConfig() {
     tips: els.tips.checked,
     quotes: els.quotes.checked,
   });
+}
+
+async function saveAllSettings() {
+  await saveAIConfig();
+  await saveConfig();
+}
+
+async function testAI() {
+  els.aiTestResult.textContent = "测试中…";
+  els.aiTest.disabled = true;
+  try {
+    const result = await TestAIConnection(collectAIConfig());
+    els.aiTestResult.textContent = result?.ok
+      ? `✓ ${result.message || "连接成功"}`
+      : `✗ ${result?.message || "连接失败"}`;
+  } catch (err) {
+    els.aiTestResult.textContent = `✗ ${String(err || "连接失败")}`;
+  } finally {
+    els.aiTest.disabled = false;
+  }
 }
 
 async function inspectSource() {
@@ -286,7 +415,7 @@ async function convert() {
   setConverting(true);
   els.openDir.disabled = true;
   renderStatus("正在转换");
-  await saveConfig();
+  await saveAllSettings();
 
   try {
     await Convert({
@@ -299,6 +428,7 @@ async function convert() {
       dedup: els.dedup.checked,
       tips: els.tips.checked,
       quotes: els.quotes.checked,
+      ai: collectAIRequest(),
     });
   } catch (err) {
     appendLog(`\n${String(err || "转换失败")}\n`);
@@ -318,8 +448,14 @@ async function bootstrap() {
   els.dedup.checked = cfg?.dedup ?? true;
   els.tips.checked = cfg?.tips ?? true;
   els.quotes.checked = cfg?.quotes ?? false;
-  renderMoreSummary();
-  setMoreOpen(false);
+
+  try {
+    const ai = await GetAIConfig();
+    fillAIConfig({ ai });
+  } catch {
+    fillAIConfig({ ai: defaultAIConfig() });
+  }
+
   await inspectSource();
   setConverting(false);
 
@@ -346,11 +482,22 @@ els.pickTxt.addEventListener("click", pickTxt);
 els.pickCover.addEventListener("click", pickCover);
 els.convert.addEventListener("click", convert);
 els.openDir.addEventListener("click", openOutputDir);
-els.moreToggle.addEventListener("click", () => {
-  setMoreOpen(!state.moreOpen);
+
+els.openSettings.addEventListener("click", openSettingsModal);
+els.settingsClose.addEventListener("click", closeSettingsModal);
+els.settingsCancel.addEventListener("click", closeSettingsModal);
+els.settingsModal.querySelectorAll("[data-close-modal]").forEach((node) => {
+  node.addEventListener("click", closeSettingsModal);
 });
-els.moreClose.addEventListener("click", () => {
-  setMoreOpen(false);
+
+els.settingsSave.addEventListener("click", async () => {
+  try {
+    await saveAllSettings();
+    closeSettingsModal();
+    renderStatus("设置已保存");
+  } catch (err) {
+    renderStatus(String(err || "保存设置失败"));
+  }
 });
 
 els.txtFile.addEventListener("change", async () => {
@@ -360,19 +507,19 @@ els.txtFile.addEventListener("change", async () => {
 els.coverFile.addEventListener("change", saveConfig);
 els.author.addEventListener("change", saveConfig);
 els.format.addEventListener("change", saveConfig);
-els.match.addEventListener("change", saveConfig);
-els.volumeMatch.addEventListener("change", saveConfig);
-els.dedup.addEventListener("change", async () => {
-  renderMoreSummary();
-  await saveConfig();
+
+els.aiEnabled.addEventListener("change", renderAIStatus);
+els.aiToggleKey.addEventListener("click", () => {
+  const isPwd = els.aiAPIKey.type === "password";
+  els.aiAPIKey.type = isPwd ? "text" : "password";
+  els.aiToggleKey.textContent = isPwd ? "隐藏" : "显示";
 });
-els.tips.addEventListener("change", async () => {
-  renderMoreSummary();
-  await saveConfig();
-});
-els.quotes.addEventListener("change", async () => {
-  renderMoreSummary();
-  await saveConfig();
+els.aiTest.addEventListener("click", testAI);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !els.settingsModal.hidden) {
+    closeSettingsModal();
+  }
 });
 
 bootstrap();

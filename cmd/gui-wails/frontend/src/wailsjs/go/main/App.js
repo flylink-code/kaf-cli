@@ -6,6 +6,10 @@ export function Convert(arg1) {
   return window['go']['main']['App']['Convert'](arg1);
 }
 
+export function GetAIConfig() {
+  return window['go']['main']['App']['GetAIConfig']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -26,6 +30,14 @@ export function PickTXT() {
   return window['go']['main']['App']['PickTXT']();
 }
 
+export function SaveAIConfig(arg1) {
+  return window['go']['main']['App']['SaveAIConfig'](arg1);
+}
+
 export function SaveConfig(arg1) {
   return window['go']['main']['App']['SaveConfig'](arg1);
+}
+
+export function TestAIConnection(arg1) {
+  return window['go']['main']['App']['TestAIConnection'](arg1);
 }

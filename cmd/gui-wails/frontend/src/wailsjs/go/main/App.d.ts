@@ -4,6 +4,8 @@ import {main} from '../models';
 
 export function Convert(arg1:main.convertRequest):Promise<void>;
 
+export function GetAIConfig():Promise<main.aiConfig>;
+
 export function GetConfig():Promise<main.guiConfig>;
 
 export function InspectSource(arg1:string):Promise<main.sourceInsight>;
@@ -14,4 +16,8 @@ export function PickCover():Promise<string>;
 
 export function PickTXT():Promise<string>;
 
+export function SaveAIConfig(arg1:main.aiConfig):Promise<void>;
+
 export function SaveConfig(arg1:main.guiConfig):Promise<void>;
+
+export function TestAIConnection(arg1:main.aiConfig):Promise<main.aiTestResult>;

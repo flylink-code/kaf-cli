@@ -8,8 +8,7 @@
 
 ### 本 fork 新增
 
-- **Windows 图形版 `kaf-cli-gui.exe`**：选择 TXT/封面、作者、输出格式；拖拽导入；记住上次选项
-- **Wails 原型 `cmd/gui-wails`**：保留 Go 转换核心，尝试更现代的 WebView2 桌面界面
+- **Windows 图形版 `kaf-cli-wails.exe`**：选择 TXT/封面、作者、输出格式；系统/AI 统一设置弹窗；记住上次选项
 - **章节目录去重 `-dedup-title`**：合并「目录行 + 正文标题行」重复章节（默认开启）
 - **对话引号优化 `-normalize-quotes`**：正文 `「」` 转为 `“”`（默认关闭，不影响【】）
 - **「第X部」分篇处理**：单独一行的 `第一部`、`第三部` 不再误入 EPUB 目录
@@ -18,7 +17,7 @@
 ### 功能
 
 - 傻瓜操作模式（把 txt 文件拖到 `kaf-cli.exe` 上面自动转换）
-- Windows 图形界面（`kaf-cli-gui.exe`）
+- Windows 图形界面（`kaf-cli-wails.exe`）
 - 自定义封面
 - 支持生成 Orly 风格的书籍封面
 - 自动识别书名和章节
@@ -48,7 +47,7 @@ Windows 压缩包内包含：
 | 文件 | 说明 |
 |---|---|
 | `kaf-cli.exe` | 64 位命令行版（支持拖拽 txt） |
-| `kaf-cli-gui.exe` | 64 位图形界面版（仅 Windows） |
+| `kaf-cli-wails.exe` | 64 位图形界面版（WebView2，仅 Windows） |
 | `kindlegen.exe` | mobi 转换工具（如有） |
 
 ### 本地编译
@@ -67,26 +66,21 @@ Windows 压缩包内包含：
 | 路径 | 说明 |
 |---|---|
 | `build/windows-amd64/kaf-cli.exe` | 64 位 CLI |
-| `build/windows-amd64/kaf-cli-gui.exe` | 64 位 GUI（无控制台窗口） |
-| `build/windows-amd64/kaf-cli-wails.exe` | 64 位 Wails GUI 原型（环境满足时构建） |
-| `build/windows-386/kaf-cli.exe` | 32 位 CLI（无 GUI） |
+| `build/windows-amd64/kaf-cli-wails.exe` | 64 位 Wails GUI（需本机安装 Wails CLI） |
+| `build/windows-386/kaf-cli.exe` | 32 位 CLI |
 
 日常使用可将 `build/windows-amd64/` 下的 exe 复制到工作目录，或直接把 txt 拖到该目录中的 `kaf-cli.exe` 上。
 
-> GUI 依赖 [windigo](https://github.com/rodrigocfd/windigo)，仅提供 64 位版本。
->
-> 另提供一个基于 Wails 的原型入口：[`cmd/gui-wails`](cmd/gui-wails/README.md)。它默认挂在 `wailsgui` 构建标签下，不影响现有编译流程。
+> Wails 版需 [Wails v2](https://wails.io/) 与 WebView2；`.\build.ps1` 在检测到 `wails` 命令时会一并编译 GUI。
 
 ### 使用方法
 
 #### 图形界面（Windows）
 
-1. 运行 `build/windows-amd64/kaf-cli-gui.exe`（或复制到任意目录后运行）
-2. 选择 TXT：点击「浏览...」或将 txt **拖拽到窗口**
-3. 界面会显示识别出的**书名**；作者、封面可自动填充（知轩藏书文件名）
-4. （可选）选择输出格式，勾选：合并重复目录行、制作说明、对话引号优化
-5. 点击「开始转换」；完成后可**打开输出目录**（与 txt 同目录）
-6. 上次使用的路径与选项会保存在 `%AppData%\kaf-cli\gui-config.json`
+1. 运行 `build/windows-amd64/kaf-cli-wails.exe`
+2. 选择 TXT、封面、作者；顶部 **设置** 打开配置弹窗
+3. 选择输出格式后点击「开始转换」；完成后可打开输出目录
+4. 选项保存在 `%AppData%\kaf-cli\gui-config.json`
 
 #### 拖拽 / 命令行
 
@@ -184,6 +178,30 @@ kaf-cli.exe -filename 全职法师.txt -dedup-title=false
 ### 对话引号优化说明
 
 部分网文对话使用 `「」`，开启 `-normalize-quotes` 后正文会替换为 `“”`，`【】` 系统提示不变。章节标题行不替换。
+
+### AI 优化（图形界面，可选）
+
+> AI 是规则引擎的**可选后处理增强**，默认关闭，离线不影响转换。
+
+图形版（`kaf-cli-wails.exe`）支持接入 OpenAI 兼容的 AI 服务，在规则解析完成后做进一步优化。在 **设置** 弹窗中填入：
+
+| 项 | 说明 |
+|---|---|
+| Base URL | OpenAI 兼容地址，如 `https://api.deepseek.com/v1`；留空用 OpenAI 官方 |
+| Model | 如 `deepseek-chat` / `gpt-4o-mini` / `qwen-plus` |
+| API Key | 仅本地保存，不随书籍上传 |
+| 抽样上限 | 正文抽样字符数；`0` 表示只分析章节标题（最省 token） |
+
+可勾选的 4 个任务（默认仅勾「章节结构分析」）：
+
+- **章节结构分析**：本地规则先扫描水印/重复章号/空目录等疑点，仅把可疑片段的标题送 AI 复核并修正 `SectionList`；无疑点则 0 次请求。
+- **排版细节修正**：抽样前几章诊断排版问题（引号、省略号、全半角等），生成替换规则后本地全量应用。
+- **噪音内容清理**：识别广告/水印/采集站尾巴等噪音特征，本地按特征删行。
+- **生成书籍简介**：基于正文生成简介，写入 epub 的描述字段。
+
+**降级保证**：任一任务失败都会告警并跳过，绝不中断转换；最坏情况下沿用规则引擎结果。AI 进度会实时显示在转换日志中。
+
+> **隐私**：API Key 经 Windows DPAPI 加密后保存在 `%AppData%\kaf-cli\gui-config.json`，仅当前 Windows 账户可解密（换机器/账户后需重填）；文件权限 `0600`。错误日志中疑似 key 的片段会自动打码。仅调用 AI 时会把章节标题/抽样正文发送到你所配置的服务；封面生成与统计等非 AI 出站请求均不携带 key。
 
 ### 自定义章节匹配规则
 

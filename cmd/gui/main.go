@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -11,6 +12,7 @@ import (
 	"unsafe"
 
 	kafcli "github.com/ystyle/kaf-cli/internal/kafcli"
+	"github.com/ystyle/kaf-cli/internal/kafcli/ai"
 	"github.com/rodrigocfd/windigo/co"
 	"github.com/rodrigocfd/windigo/ui"
 	"github.com/rodrigocfd/windigo/win"
@@ -40,6 +42,7 @@ type appWindow struct {
 	quoteFix     bool
 	matchRule    string
 	volumeRule   string
+	aiConfig     aiConfig
 	converting   bool
 	lastOutDir   string
 	logBuf       logBuffer
@@ -215,6 +218,15 @@ func newAppWindow() *appWindow {
 		app.openAdvancedOptions()
 	})
 
+	btnAISettings := ui.NewButton(app.wnd, ui.OptsButton().
+		Text("AI 设置").
+		Position(ui.Dpi(contentLeft+156, 366)).
+		Width(ui.DpiX(144)).
+		Height(ui.DpiY(30)))
+	btnAISettings.On().BnClicked(func() {
+		app.openAISettings()
+	})
+
 	app.btnConvert = ui.NewButton(app.wnd, ui.OptsButton().
 		Text("开始转换").
 		Position(ui.Dpi(contentLeft, 414)).
@@ -306,6 +318,7 @@ func (app *appWindow) applyConfig(cfg guiConfig) {
 	app.quoteFix = cfg.Quotes
 	app.matchRule = strings.TrimSpace(cfg.Match)
 	app.volumeRule = strings.TrimSpace(cfg.VolumeMatch)
+	app.aiConfig = cfg.AI
 	app.onTxtPathChanged()
 }
 
@@ -366,6 +379,7 @@ func (app *appWindow) currentConfig() guiConfig {
 		Dedup:       app.dedupTitle,
 		Tips:        app.tipsEnabled,
 		Quotes:      app.quoteFix,
+		AI:          app.aiConfig,
 	}
 }
 
@@ -376,7 +390,7 @@ func (app *appWindow) guiOptions() kafcli.GUIOptions {
 	if idx >= 0 && idx < len(formats) {
 		format = formats[idx]
 	}
-	return kafcli.GUIOptions{
+	opts := kafcli.GUIOptions{
 		Filename:        strings.TrimSpace(app.txtFile.Text()),
 		Cover:           strings.TrimSpace(app.coverFile.Text()),
 		Author:          strings.TrimSpace(app.authorEdit.Text()),
@@ -387,6 +401,25 @@ func (app *appWindow) guiOptions() kafcli.GUIOptions {
 		Tips:            app.tipsEnabled,
 		NormalizeQuotes: app.quoteFix,
 	}
+	// AI：保留用户意图(Enabled)；是否真正调用由核心库依据 Client.Ready() 决定并打日志。
+	cfg := app.aiConfig
+	if cfg.Enabled {
+		client := ai.NewClient(ai.ClientConfig{
+			BaseURL: cfg.BaseURL,
+			APIKey:  cfg.APIKey,
+			Model:   cfg.Model,
+		})
+		opts.AI = kafcli.AIRefineOptions{
+			Enabled:      true,
+			Client:       client,
+			SampleChars:  cfg.SampleChars,
+			DoStructure:  cfg.Tasks.Structure,
+			DoTypography: cfg.Tasks.Typography,
+			DoNoise:      cfg.Tasks.Noise,
+			DoMetadata:   cfg.Tasks.Metadata,
+		}
+	}
+	return opts
 }
 
 func (app *appWindow) appendLog(chunk string) {
@@ -468,6 +501,128 @@ func (app *appWindow) openAdvancedOptions() {
 	modal.ShowModal()
 }
 
+// openAISettings 弹出 AI 后处理配置窗口：总开关、连接参数、4 项任务勾选。
+func (app *appWindow) openAISettings() {
+	modal := ui.NewModal(app.wnd, ui.OptsModal().
+		Title("AI 优化设置").
+		Size(ui.DpiX(640), ui.DpiY(420)).
+		ClassIconId(1))
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("AI 用于章节结构/排版/噪音/简介的后处理；默认关闭，离线不影响转换。").
+		Position(ui.Dpi(20, 18)))
+
+	chkEnabled := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("启用 AI 后处理").
+		Position(ui.Dpi(20, 50)))
+	chkEnabled.SetCheck(app.aiConfig.Enabled)
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("Base URL").
+		Position(ui.Dpi(20, 86)))
+	editBaseURL := ui.NewEdit(modal, ui.OptsEdit().
+		Text(app.aiConfig.BaseURL).
+		Position(ui.Dpi(132, 82)).
+		Width(ui.DpiX(468)).
+		Height(ui.DpiY(28)))
+	setCueBanner(editBaseURL.Hwnd(), "https://api.deepseek.com/v1（留空用 OpenAI 官方）")
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("Model").
+		Position(ui.Dpi(20, 122)))
+	editModel := ui.NewEdit(modal, ui.OptsEdit().
+		Text(app.aiConfig.Model).
+		Position(ui.Dpi(132, 118)).
+		Width(ui.DpiX(468)).
+		Height(ui.DpiY(28)))
+	setCueBanner(editModel.Hwnd(), "例 deepseek-chat / gpt-4o-mini")
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("API Key").
+		Position(ui.Dpi(20, 158)))
+	editAPIKey := ui.NewEdit(modal, ui.OptsEdit().
+		Text(app.aiConfig.APIKey).
+		Position(ui.Dpi(132, 154)).
+		Width(ui.DpiX(396)).
+		Height(ui.DpiY(28)).
+		CtrlStyle(co.ES_AUTOHSCROLL))
+	setCueBanner(editAPIKey.Hwnd(), "sk-...（DPAPI 加密存储，仅本机可用）")
+	// 默认密码遮罩：发 EM_SETPASSWORDCHAR，用 ● 遮蔽。
+	setPasswordMask(editAPIKey.Hwnd(), true)
+
+	btnToggleKey := ui.NewButton(modal, ui.OptsButton().
+		Text("显示").
+		Position(ui.Dpi(536, 154)).
+		Width(ui.DpiX(64)).
+		Height(ui.DpiY(28)))
+	keyMasked := true
+	btnToggleKey.On().BnClicked(func() {
+		keyMasked = !keyMasked
+		setPasswordMask(editAPIKey.Hwnd(), keyMasked)
+		btnToggleKey.SetText(ternary(keyMasked, "显示", "隐藏"))
+	})
+
+	ui.NewStatic(modal, ui.OptsStatic().
+		Text("抽样上限").
+		Position(ui.Dpi(20, 194)))
+	editSampleChars := ui.NewEdit(modal, ui.OptsEdit().
+		Text(fmt.Sprintf("%d", app.aiConfig.SampleChars)).
+		Position(ui.Dpi(132, 190)).
+		Width(ui.DpiX(120)).
+		Height(ui.DpiY(28)))
+	setCueBanner(editSampleChars.Hwnd(), "正文抽样字符数，0=仅分析目录")
+
+	chkStructure := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("章节结构分析").
+		Position(ui.Dpi(20, 230)))
+	chkStructure.SetCheck(app.aiConfig.Tasks.Structure)
+
+	chkTypography := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("排版修正").
+		Position(ui.Dpi(220, 230)))
+	chkTypography.SetCheck(app.aiConfig.Tasks.Typography)
+
+	chkNoise := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("噪音清理").
+		Position(ui.Dpi(20, 262)))
+	chkNoise.SetCheck(app.aiConfig.Tasks.Noise)
+
+	chkMetadata := ui.NewCheckBox(modal, ui.OptsCheckBox().
+		Text("生成简介").
+		Position(ui.Dpi(220, 262)))
+	chkMetadata.SetCheck(app.aiConfig.Tasks.Metadata)
+
+	btnCancel := ui.NewButton(modal, ui.OptsButton().
+		Text("取消").
+		Position(ui.Dpi(364, 330)).
+		Width(ui.DpiX(108)).
+		Height(ui.DpiY(32)))
+	btnCancel.On().BnClicked(func() {
+		_, _ = modal.Hwnd().SendMessage(co.WM_CLOSE, 0, 0)
+	})
+
+	btnSave := ui.NewButton(modal, ui.OptsButton().
+		Text("保存").
+		Position(ui.Dpi(492, 330)).
+		Width(ui.DpiX(108)).
+		Height(ui.DpiY(32)))
+	btnSave.On().BnClicked(func() {
+		app.aiConfig.Enabled = chkEnabled.IsChecked()
+		app.aiConfig.BaseURL = strings.TrimSpace(editBaseURL.Text())
+		app.aiConfig.Model = strings.TrimSpace(editModel.Text())
+		app.aiConfig.APIKey = strings.TrimSpace(editAPIKey.Text())
+		app.aiConfig.SampleChars = kafcli.ParseInt(strings.TrimSpace(editSampleChars.Text()))
+		app.aiConfig.Tasks.Structure = chkStructure.IsChecked()
+		app.aiConfig.Tasks.Typography = chkTypography.IsChecked()
+		app.aiConfig.Tasks.Noise = chkNoise.IsChecked()
+		app.aiConfig.Tasks.Metadata = chkMetadata.IsChecked()
+		app.persistConfig()
+		_, _ = modal.Hwnd().SendMessage(co.WM_CLOSE, 0, 0)
+	})
+
+	modal.ShowModal()
+}
+
 func (app *appWindow) startConvert() {
 	txtPath := strings.TrimSpace(app.txtFile.Text())
 	if txtPath == "" {
@@ -529,4 +684,47 @@ func setCueBanner(hWnd win.HWND, text string) {
 		return
 	}
 	_, _ = hWnd.SendMessage(co.EM_SETCUEBANNER, 0, win.LPARAM(uintptr(unsafe.Pointer(ptr))))
+}
+
+// setPasswordMask 开关单行 Edit 的密码遮罩。
+// 开启时发 EM_SETPASSWORDCHAR 设置遮蔽字符 ●，并用 user32 直接改 ES_PASSWORD 样式；
+// 关闭时移除样式并清空密码字符，恢复明文。
+// 直接调用 user32 而非 windigo 封装，因为 windigo 的 HWND 没有 Invalidate/SetStyle 之类便捷方法。
+var (
+	modUser32           = syscall.NewLazyDLL("user32.dll")
+	procGetWindowLongW  = modUser32.NewProc("GetWindowLongW")
+	procSetWindowLongW  = modUser32.NewProc("SetWindowLongW")
+)
+
+const (
+	emSetPasswordChar = 0x00CC
+	esPassword        = 0x0020
+	swpFrameChanged   = 0x0020
+	swpNoMove         = 0x0002
+	swpNoSize         = 0x0001
+	swpNoZOrder       = 0x0004
+)
+
+func setPasswordMask(hWnd win.HWND, mask bool) {
+	if hWnd == 0 {
+		return
+	}
+	// GWL_STYLE = -16，用 ^uintptr(0) - 15 计算出无符号表示，规避负常量溢出。
+	gwlStyle := ^uintptr(0) - 15
+	h := uintptr(hWnd)
+	style, _, _ := procGetWindowLongW.Call(h, gwlStyle)
+	if mask {
+		_, _ = hWnd.SendMessage(emSetPasswordChar, win.WPARAM('●'), 0)
+		procSetWindowLongW.Call(h, gwlStyle, style|esPassword)
+	} else {
+		procSetWindowLongW.Call(h, gwlStyle, style & ^uintptr(esPassword))
+		_, _ = hWnd.SendMessage(emSetPasswordChar, 0, 0)
+	}
+}
+
+func ternary(cond bool, a, b string) string {
+	if cond {
+		return a
+	}
+	return b
 }
