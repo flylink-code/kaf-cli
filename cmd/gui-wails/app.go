@@ -28,6 +28,11 @@ type App struct {
 	converting bool
 }
 
+// GetVersion returns the build version displayed by the desktop application.
+func (a *App) GetVersion() string {
+	return version
+}
+
 type sourceInsight struct {
 	Bookname string `json:"bookname"`
 	Author   string `json:"author"`

@@ -94,7 +94,7 @@ if (Test-Path $wailsProject) {
         }
         Push-Location $wailsProject
         try {
-            & $wails.Source build -m -tags wailsgui
+            & $wails.Source build -m -tags wailsgui -ldflags $ldflags
             $srcExe = Join-Path $wailsProject "build\bin\kaf-cli-wails.exe"
             if ($LASTEXITCODE -ne 0 -or -not (Test-Path $srcExe)) {
                 Write-Host "   FAILED (exit $LASTEXITCODE)" -ForegroundColor Red

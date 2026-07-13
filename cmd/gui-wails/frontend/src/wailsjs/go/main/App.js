@@ -6,6 +6,10 @@ export function Convert(arg1) {
   return window['go']['main']['App']['Convert'](arg1);
 }
 
+export function CheckForUpdate() {
+  return window['go']['main']['App']['CheckForUpdate']();
+}
+
 export function GetAIConfig() {
   return window['go']['main']['App']['GetAIConfig']();
 }
@@ -14,8 +18,16 @@ export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
 
+export function GetVersion() {
+  return window['go']['main']['App']['GetVersion']();
+}
+
 export function InspectSource(arg1) {
   return window['go']['main']['App']['InspectSource'](arg1);
+}
+
+export function InstallUpdate(arg1) {
+  return window['go']['main']['App']['InstallUpdate'](arg1);
 }
 
 export function OpenLastOutputDir() {

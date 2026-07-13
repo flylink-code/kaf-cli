@@ -1,8 +1,11 @@
 import "./style.css";
 import {
   Convert,
+  CheckForUpdate,
   GetConfig,
   GetAIConfig,
+  GetVersion,
+  InstallUpdate,
   InspectSource,
   OpenLastOutputDir,
   PickCover,
@@ -32,6 +35,13 @@ app.innerHTML = `
           设置
           <span id="aiStatusChip" class="inline-chip">AI关</span>
         </button>
+        <div class="help-menu">
+          <button id="helpMenuButton" class="icon-btn" type="button" aria-label="帮助和更新" title="帮助和更新">?</button>
+          <div id="helpMenu" class="help-menu-popup" hidden>
+            <button id="aboutButton" class="menu-item" type="button">关于 kaf-cli <span id="versionLabel"></span></button>
+            <button id="checkUpdate" class="menu-item" type="button">检查更新</button>
+          </div>
+        </div>
         <div id="statusChip" class="status-chip">准备就绪</div>
       </div>
     </header>
@@ -88,6 +98,26 @@ app.innerHTML = `
         <pre id="log" class="log-box">等待开始转换…</pre>
       </section>
     </main>
+  </div>
+
+  <div id="updateModal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-update></div>
+    <div class="modal-card update-modal-card" role="dialog" aria-modal="true" aria-labelledby="updateTitle">
+      <div class="modal-header">
+        <div>
+          <p class="eyebrow">软件更新</p>
+          <h2 id="updateTitle">检查更新</h2>
+        </div>
+        <button id="updateClose" class="modal-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="modal-body update-body">
+        <p id="updateMessage">正在检查 GitHub Release…</p>
+      </div>
+      <div class="modal-footer">
+        <button id="updateInstall" class="primary-btn" type="button" hidden>下载并安装</button>
+        <button id="updateCancel" class="ghost-btn" type="button">关闭</button>
+      </div>
+    </div>
   </div>
 
   <div id="settingsModal" class="modal" hidden>
@@ -226,7 +256,19 @@ const els = {
   aiSampleChars: document.getElementById("aiSampleChars"),
   aiTest: document.getElementById("aiTest"),
   aiTestResult: document.getElementById("aiTestResult"),
+  helpMenuButton: document.getElementById("helpMenuButton"),
+  helpMenu: document.getElementById("helpMenu"),
+  aboutButton: document.getElementById("aboutButton"),
+  checkUpdate: document.getElementById("checkUpdate"),
+  versionLabel: document.getElementById("versionLabel"),
+  updateModal: document.getElementById("updateModal"),
+  updateClose: document.getElementById("updateClose"),
+  updateCancel: document.getElementById("updateCancel"),
+  updateInstall: document.getElementById("updateInstall"),
+  updateMessage: document.getElementById("updateMessage"),
 };
+
+let pendingUpdate;
 
 function formatIndexToValue(index) {
   return ["all", "epub", "mobi", "azw3"][index] || "all";
@@ -270,6 +312,55 @@ function openSettingsModal() {
 
 function closeSettingsModal() {
   els.settingsModal.hidden = true;
+}
+
+function toggleHelpMenu() {
+  els.helpMenu.hidden = !els.helpMenu.hidden;
+}
+
+function closeHelpMenu() {
+  els.helpMenu.hidden = true;
+}
+
+function openUpdateModal(message) {
+  els.updateMessage.textContent = message;
+  els.updateInstall.hidden = true;
+  els.updateModal.hidden = false;
+}
+
+function closeUpdateModal() {
+  els.updateModal.hidden = true;
+}
+
+async function checkForUpdate() {
+  closeHelpMenu();
+  openUpdateModal("正在检查 GitHub Release…");
+  try {
+    const update = await CheckForUpdate();
+    pendingUpdate = update;
+    if (update?.available) {
+      els.updateMessage.textContent = `发现新版本 ${update.latest}（当前 ${update.current}）。将从 GitHub 下载 MSI 安装包，安装后自动替换当前版本。`;
+      els.updateInstall.hidden = false;
+      return;
+    }
+    els.updateMessage.textContent = `当前已是最新版本（${update?.current || "未知"}）。`;
+  } catch (err) {
+    els.updateMessage.textContent = `检查更新失败：${String(err || "未知错误")}`;
+  }
+}
+
+async function installUpdate() {
+  if (!pendingUpdate?.downloadURL) return;
+  els.updateInstall.disabled = true;
+  els.updateCancel.disabled = true;
+  els.updateMessage.textContent = "正在从 GitHub 下载更新包，完成后将启动 Windows Installer…";
+  try {
+    await InstallUpdate(pendingUpdate.downloadURL);
+  } catch (err) {
+    els.updateInstall.disabled = false;
+    els.updateCancel.disabled = false;
+    els.updateMessage.textContent = `启动更新失败：${String(err || "未知错误")}`;
+  }
 }
 
 function defaultAIConfig() {
@@ -438,6 +529,8 @@ async function convert() {
 }
 
 async function bootstrap() {
+  const currentVersion = await GetVersion();
+  els.versionLabel.textContent = currentVersion || "dev";
   const cfg = await GetConfig();
   els.txtFile.value = cfg?.txt_file || "";
   els.coverFile.value = cfg?.cover_file || "";
@@ -516,10 +609,30 @@ els.aiToggleKey.addEventListener("click", () => {
 });
 els.aiTest.addEventListener("click", testAI);
 
+els.helpMenuButton.addEventListener("click", toggleHelpMenu);
+els.aboutButton.addEventListener("click", () => {
+  closeHelpMenu();
+  openUpdateModal(`kaf-cli 电子书转换\n版本 ${els.versionLabel.textContent}`);
+});
+els.checkUpdate.addEventListener("click", checkForUpdate);
+els.updateClose.addEventListener("click", closeUpdateModal);
+els.updateCancel.addEventListener("click", closeUpdateModal);
+els.updateInstall.addEventListener("click", installUpdate);
+els.updateModal.querySelectorAll("[data-close-update]").forEach((node) => {
+  node.addEventListener("click", closeUpdateModal);
+});
+
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !els.settingsModal.hidden) {
     closeSettingsModal();
   }
+  if (e.key === "Escape" && !els.updateModal.hidden) {
+    closeUpdateModal();
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".help-menu")) closeHelpMenu();
 });
 
 bootstrap();

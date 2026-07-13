@@ -1,4 +1,23 @@
 export namespace main {
+
+	export class UpdateInfo {
+	    available: boolean;
+	    current: string;
+	    latest: string;
+	    downloadURL: string;
+
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.current = source["current"];
+	        this.latest = source["latest"];
+	        this.downloadURL = source["downloadURL"];
+	    }
+	}
 	
 	export class aiTasks {
 	    structure: boolean;
@@ -209,4 +228,3 @@ export namespace main {
 	}
 
 }
-

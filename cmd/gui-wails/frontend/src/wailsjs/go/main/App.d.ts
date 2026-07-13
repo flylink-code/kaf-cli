@@ -4,11 +4,17 @@ import {main} from '../models';
 
 export function Convert(arg1:main.convertRequest):Promise<void>;
 
+export function CheckForUpdate():Promise<main.UpdateInfo>;
+
 export function GetAIConfig():Promise<main.aiConfig>;
 
 export function GetConfig():Promise<main.guiConfig>;
 
+export function GetVersion():Promise<string>;
+
 export function InspectSource(arg1:string):Promise<main.sourceInsight>;
+
+export function InstallUpdate(arg1:string):Promise<void>;
 
 export function OpenLastOutputDir():Promise<void>;
 
