@@ -50,7 +50,7 @@ Windows 压缩包内包含：
 | `kaf-cli-wails.exe` | 64 位图形界面版（WebView2，仅 Windows） |
 | `kindlegen.exe` | mobi 转换工具（如有） |
 
-另外，GitHub Release 提供 `kaf-cli-vX.Y.Z-windows-x64.msi` 安装包。安装版可在图形界面右上角的帮助菜单中查看版本并检查更新；发现新版本后，程序会从本项目的 GitHub Release 下载 MSI，再由 Windows Installer 完成升级。
+另外，GitHub Release 提供 `kaf-cli-vX.Y.Z-windows-x64-setup.exe` 安装包。安装程序支持选择安装目录，并创建桌面和开始菜单快捷方式。安装版可在图形界面右上角的帮助菜单中查看版本并检查更新；发现新版本后，程序会从本项目的 GitHub Release 下载并启动安装程序完成升级。
 
 ### 本地编译
 

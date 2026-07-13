@@ -37,9 +37,9 @@ jobs:
           $gobin = (go env GOPATH) + "\bin"
           echo $gobin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Install WiX Toolset
+      - name: Install NSIS
         shell: pwsh
-        run: choco install wixtoolset --no-progress --yes
+        run: choco install nsis --no-progress --yes
 
       - name: Build release artifacts
         shell: pwsh
@@ -62,17 +62,20 @@ jobs:
           }
           Copy-Item build\windows-386\kaf-cli.exe release\kaf-cli-windows-386.exe -Force
 
-      - name: Build MSI installer
+      - name: Build setup installer
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
-          $sourceDir = Join-Path $env:GITHUB_WORKSPACE "build\windows-amd64"
-          $candle = (Get-Command candle.exe -ErrorAction Stop).Source
-          $light = (Get-Command light.exe -ErrorAction Stop).Source
-          & $candle -nologo -ext WixUIExtension "-dProductVersion=$version" "-dSourceDir=$sourceDir" -out release\installer.wixobj installer\Product.wxs
+          $configPath = Join-Path $env:GITHUB_WORKSPACE "cmd\gui-wails\wails.json"
+          $config = Get-Content -Raw $configPath | ConvertFrom-Json
+          $config.info.productVersion = $version
+          $config | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 $configPath
+          Set-Location cmd\gui-wails
+          wails build -m -s -tags wailsgui -ldflags "-s -w -X main.version=${{ github.ref_name }}" -nsis
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $light -nologo -ext WixUIExtension -out "release\kaf-cli-${{ github.ref_name }}-windows-x64.msi" release\installer.wixobj
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $installer = "build\bin\kaf-cli-amd64-installer.exe"
+          if (-not (Test-Path $installer)) { throw "NSIS installer not found: $installer" }
+          Copy-Item $installer "..\..\release\kaf-cli-${{ github.ref_name }}-windows-x64-setup.exe" -Force
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
@@ -81,5 +84,5 @@ jobs:
             release/kaf-cli-windows-amd64.exe
             release/kaf-cli-wails-windows-amd64.exe
             release/kaf-cli-windows-386.exe
-            release/kaf-cli-*-windows-x64.msi
+            release/kaf-cli-*-windows-x64-setup.exe
           generate_release_notes: true

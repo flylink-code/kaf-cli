@@ -339,7 +339,7 @@ async function checkForUpdate() {
     const update = await CheckForUpdate();
     pendingUpdate = update;
     if (update?.available) {
-      els.updateMessage.textContent = `发现新版本 ${update.latest}（当前 ${update.current}）。将从 GitHub 下载 MSI 安装包，安装后自动替换当前版本。`;
+      els.updateMessage.textContent = `发现新版本 ${update.latest}（当前 ${update.current}）。将从 GitHub 下载安装程序，安装后自动替换当前版本。`;
       els.updateInstall.hidden = false;
       return;
     }

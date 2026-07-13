@@ -35,7 +35,7 @@ type githubRelease struct {
 	} `json:"assets"`
 }
 
-// CheckForUpdate reads the latest stable GitHub release and selects its x64 MSI asset.
+// CheckForUpdate reads the latest stable GitHub release and selects its x64 setup executable.
 func (a *App) CheckForUpdate() (UpdateInfo, error) {
 	release, err := latestRelease()
 	if err != nil {
@@ -44,31 +44,31 @@ func (a *App) CheckForUpdate() (UpdateInfo, error) {
 
 	info := UpdateInfo{Current: version, Latest: release.TagName}
 	for _, asset := range release.Assets {
-		if strings.HasSuffix(strings.ToLower(asset.Name), "-windows-x64.msi") {
+		if strings.HasSuffix(strings.ToLower(asset.Name), "-windows-x64-setup.exe") {
 			info.DownloadURL = asset.BrowserDownloadURL
 			break
 		}
 	}
 	if info.DownloadURL == "" {
-		return info, errors.New("最新版本未提供 Windows x64 MSI 安装包")
+		return info, errors.New("最新版本未提供 Windows x64 安装包")
 	}
 	info.Available = versionLess(version, release.TagName)
 	return info, nil
 }
 
-// InstallUpdate downloads the selected MSI and launches Windows Installer after this app exits.
+// InstallUpdate downloads the selected setup executable and launches it after this app exits.
 func (a *App) InstallUpdate(downloadURL string) error {
 	if !strings.HasPrefix(downloadURL, "https://github.com/") {
 		return errors.New("更新包来源无效")
 	}
 
-	path, err := downloadMSI(downloadURL)
+	path, err := downloadInstaller(downloadURL)
 	if err != nil {
 		return err
 	}
 
-	// Give Wails time to release the installed executable before MSI replaces it.
-	command := fmt.Sprintf(`timeout /t 2 /nobreak >nul & start "" msiexec.exe /i "%s"`, path)
+	// Give Wails time to release the installed executable before the setup program replaces it.
+	command := fmt.Sprintf(`timeout /t 2 /nobreak >nul & start "" "%s"`, path)
 	cmd := exec.Command("cmd.exe", "/c", command)
 	cmd.SysProcAttr = hideWindowAttrs()
 	if err := cmd.Start(); err != nil {
@@ -104,7 +104,7 @@ func latestRelease() (githubRelease, error) {
 	return release, nil
 }
 
-func downloadMSI(downloadURL string) (string, error) {
+func downloadInstaller(downloadURL string) (string, error) {
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return "", err
@@ -128,7 +128,7 @@ func downloadMSI(downloadURL string) (string, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, "kaf-cli-update.msi")
+	path := filepath.Join(dir, "kaf-cli-update-setup.exe")
 	file, err := os.Create(path)
 	if err != nil {
 		return "", err

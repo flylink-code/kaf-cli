@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "kaf-cli Wails Prototype",
+  "name": "kaf-cli",
   "outputfilename": "kaf-cli-wails",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
@@ -10,5 +10,11 @@
   "author": {
     "name": "flylink-code",
     "email": ""
+  },
+  "info": {
+    "companyName": "flylink-code",
+    "productName": "kaf-cli",
+    "productVersion": "1.6.8",
+    "copyright": "Copyright (c) flylink-code"
   }
 }
