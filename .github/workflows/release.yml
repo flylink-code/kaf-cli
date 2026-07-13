@@ -66,12 +66,11 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
-          $wix = Get-ChildItem -Directory -Path "${env:ProgramFiles(x86)}" -Filter "WiX Toolset v3.*" | Sort-Object Name -Descending | Select-Object -First 1
-          if (-not $wix) { throw "WiX Toolset v3 was not installed" }
-          $wixBin = Join-Path $wix.FullName "bin"
-          & (Join-Path $wixBin "candle.exe") -nologo -dProductVersion=$version -dSourceDir="$env:GITHUB_WORKSPACE\build\windows-amd64" -out release\installer.wixobj installer\Product.wxs
+          $candle = (Get-Command candle.exe -ErrorAction Stop).Source
+          $light = (Get-Command light.exe -ErrorAction Stop).Source
+          & $candle -nologo -dProductVersion=$version -dSourceDir="$env:GITHUB_WORKSPACE\build\windows-amd64" -out release\installer.wixobj installer\Product.wxs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & (Join-Path $wixBin "light.exe") -nologo -out "release\kaf-cli-${{ github.ref_name }}-windows-x64.msi" release\installer.wixobj
+          & $light -nologo -out "release\kaf-cli-${{ github.ref_name }}-windows-x64.msi" release\installer.wixobj
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish GitHub Release
