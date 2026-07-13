@@ -39,7 +39,7 @@ jobs:
 
       - name: Install WiX Toolset
         shell: pwsh
-        run: choco install wixtoolset --version=3.11.2 --no-progress --yes
+        run: choco install wixtoolset --no-progress --yes
 
       - name: Build release artifacts
         shell: pwsh
