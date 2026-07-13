@@ -9,6 +9,9 @@
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of kaf-cli is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <UIRef Id="WixUI_InstallDir" />
+    <WixVariable Id="WixUILicenseRtf" Value="installer\license.rtf" />
 
     <Feature Id="MainFeature" Title="kaf-cli" Level="1">
       <ComponentRef Id="MainExecutable" />
@@ -18,11 +21,26 @@
       <Directory Id="ProgramFilesFolder">
         <Directory Id="INSTALLFOLDER" Name="kaf-cli" />
       </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="kaf-cli" />
+      </Directory>
     </Directory>
 
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="MainExecutable" Guid="{89F50E1A-73A5-4CAC-8812-96B836C06194}">
-        <File Id="KafCliWailsExe" Source="$(var.SourceDir)\kaf-cli-wails.exe" KeyPath="yes" />
+        <File Id="KafCliWailsExe" Source="$(var.SourceDir)\kaf-cli-wails.exe" KeyPath="yes">
+          <Shortcut Id="DesktopShortcut"
+                    Directory="DesktopFolder"
+                    Name="kaf-cli"
+                    Description="kaf-cli 电子书转换"
+                    WorkingDirectory="INSTALLFOLDER" />
+          <Shortcut Id="StartMenuShortcut"
+                    Directory="ApplicationProgramsFolder"
+                    Name="kaf-cli"
+                    Description="kaf-cli 电子书转换"
+                    WorkingDirectory="INSTALLFOLDER" />
+        </File>
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
       </Component>
     </DirectoryRef>
   </Product>

@@ -69,9 +69,9 @@ jobs:
           $sourceDir = Join-Path $env:GITHUB_WORKSPACE "build\windows-amd64"
           $candle = (Get-Command candle.exe -ErrorAction Stop).Source
           $light = (Get-Command light.exe -ErrorAction Stop).Source
-          & $candle -nologo "-dProductVersion=$version" "-dSourceDir=$sourceDir" -out release\installer.wixobj installer\Product.wxs
+          & $candle -nologo -ext WixUIExtension "-dProductVersion=$version" "-dSourceDir=$sourceDir" -out release\installer.wixobj installer\Product.wxs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $light -nologo -out "release\kaf-cli-${{ github.ref_name }}-windows-x64.msi" release\installer.wixobj
+          & $light -nologo -ext WixUIExtension -out "release\kaf-cli-${{ github.ref_name }}-windows-x64.msi" release\installer.wixobj
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Publish GitHub Release
