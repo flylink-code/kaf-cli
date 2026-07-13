@@ -39,7 +39,13 @@ jobs:
 
       - name: Install NSIS
         shell: pwsh
-        run: choco install nsis --no-progress --yes
+        run: |
+          choco install nsis --no-progress --yes
+          $nsisBin = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Test-Path (Join-Path $nsisBin "makensis.exe"))) {
+            throw "NSIS compiler was not installed"
+          }
+          $nsisBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Build release artifacts
         shell: pwsh
