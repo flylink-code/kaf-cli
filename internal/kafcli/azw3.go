@@ -3,12 +3,17 @@ package kafcli
 import (
 	"bytes"
 	"fmt"
-	"github.com/leotaku/mobi"
-	"golang.org/x/text/language"
 	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"math/rand"
 	"os"
 	"time"
+
+	"github.com/leotaku/mobi"
+	_ "golang.org/x/image/webp"
+	"golang.org/x/text/language"
 )
 
 type Azw3Converter struct{}
@@ -58,15 +63,12 @@ func (convert Azw3Converter) Build(book Book) error {
 
 		mb.CSSFlows = []string{css}
 		if book.Cover != "" {
-			f, err := os.Open(book.Cover)
+			img, err := loadCoverImage(book.Cover)
 			if err != nil {
-				return fmt.Errorf("添加封面失败: %w", err)
+				fmt.Printf("[警告] AZW3封面加载失败，将跳过封面: %v\n", err)
+			} else {
+				mb.CoverImage = img
 			}
-			img, _, err := image.Decode(f)
-			if err != nil {
-				return fmt.Errorf("添加封面失败: %w", err)
-			}
-			mb.CoverImage = img
 		}
 
 		// Convert book to PalmDB database
@@ -101,4 +103,18 @@ func SectionSliceChunk(s []Section, size int) [][]Section {
 	}
 	ret = append(ret, s)
 	return ret
+}
+
+func loadCoverImage(path string) (image.Image, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	img, _, err := image.Decode(f)
+	if err != nil {
+		return nil, err
+	}
+	return img, nil
 }

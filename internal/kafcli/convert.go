@@ -10,6 +10,7 @@ import (
 	"golang.org/x/text/encoding"
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"golang.org/x/text/transform"
+	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -21,6 +22,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	_ "golang.org/x/image/webp"
 	"github.com/ystyle/kaf-cli/internal/kafcli/ai"
 )
 
