@@ -20,7 +20,6 @@ build() {
 }
 
 GOOS=windows GOARCH=amd64 build build/windows-amd64/kaf-cli.exe ./cmd
-GOOS=windows GOARCH=amd64 build build/windows-amd64/kaf-cli-gui.exe ./cmd/gui "-H windowsgui"
 GOOS=windows GOARCH=386  go build -ldflags "$LDFLAGS" -o build/windows-386/kaf-cli.exe ./cmd
 GOOS=linux   GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/linux-amd64/kaf-cli ./cmd
 GOOS=darwin  GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/darwin-amd64/kaf-cli ./cmd
@@ -28,4 +27,3 @@ GOOS=darwin  GOARCH=amd64 go build -ldflags "$LDFLAGS" -o build/darwin-amd64/kaf
 echo ""
 echo "build done!"
 echo "  build/windows-amd64/kaf-cli.exe"
-echo "  build/windows-amd64/kaf-cli-gui.exe"

@@ -4,7 +4,9 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,9 +36,12 @@ func (a *App) GetVersion() string {
 }
 
 type sourceInsight struct {
-	Bookname string `json:"bookname"`
-	Author   string `json:"author"`
-	Cover    string `json:"cover"`
+	Bookname       string `json:"bookname"`
+	Author         string `json:"author"`
+	Cover          string `json:"cover"`
+	CoverDataURL   string `json:"coverDataURL"`
+	FileSize       string `json:"fileSize"`
+	EstimatedWords string `json:"estimatedWords"`
 }
 
 type convertRequest struct {
@@ -163,11 +168,24 @@ func (a *App) InspectSource(txtPath string) sourceInsight {
 		return sourceInsight{}
 	}
 	bookname, author := kafcli.FilenameMeta(txtPath)
-	return sourceInsight{
-		Bookname: bookname,
-		Author:   author,
-		Cover:    findCover(txtPath),
+	cover := findCover(txtPath)
+	insight := sourceInsight{
+		Bookname:     bookname,
+		Author:       author,
+		Cover:        cover,
+		CoverDataURL: fileToDataURL(cover),
 	}
+
+	if info, err := os.Stat(txtPath); err == nil {
+		insight.FileSize = formatFileSize(info.Size())
+		insight.EstimatedWords = estimateWordCount(info.Size())
+	}
+	return insight
+}
+
+// GetCoverPreview 为前端提供指定路径封面的 DataURL 预览（支持外部选择或重新赋值时调用）。
+func (a *App) GetCoverPreview(coverPath string) string {
+	return fileToDataURL(strings.TrimSpace(coverPath))
 }
 
 func (a *App) Convert(req convertRequest) error {
@@ -257,13 +275,69 @@ func (req convertRequest) toGUIOptions() kafcli.GUIOptions {
 
 func findCover(txtPath string) string {
 	base := strings.TrimSuffix(txtPath, filepath.Ext(txtPath))
-	for _, ext := range []string{".png", ".jpg", ".jpeg"} {
+	dir := filepath.Dir(txtPath)
+
+	// 1. 优先查找与小说 TXT 同名的图片（如：斗破苍穹.png）
+	for _, ext := range []string{".png", ".jpg", ".jpeg", ".webp"} {
 		p := base + ext
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
 	}
+
+	// 2. 查找所在目录下的标准封面命名（如：cover.png, cover.jpg）
+	for _, name := range []string{"cover.png", "cover.jpg", "cover.jpeg", "cover.webp"} {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
 	return ""
+}
+
+func fileToDataURL(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	if len(data) > 15*1024*1024 {
+		return ""
+	}
+	mimeType := "image/jpeg"
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".png":
+		mimeType = "image/png"
+	case ".webp":
+		mimeType = "image/webp"
+	case ".jpg", ".jpeg":
+		mimeType = "image/jpeg"
+	}
+	return "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+func formatFileSize(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	} else if bytes < 1024*1024 {
+		return fmt.Sprintf("%.1f KB", float64(bytes)/1024.0)
+	}
+	return fmt.Sprintf("%.2f MB", float64(bytes)/(1024.0*1024.0))
+}
+
+func estimateWordCount(bytes int64) string {
+	if bytes <= 0 {
+		return ""
+	}
+	// 中文 utf-8 约 3 字节一字，除去标点和排版空白，折算约 3.0-3.2 字节一个中文字符
+	words := int64(float64(bytes) / 3.1)
+	if words < 10000 {
+		return fmt.Sprintf("约 %d 字", words)
+	}
+	return fmt.Sprintf("约 %.1f 万字", float64(words)/10000.0)
 }
 
 func openFolder(dir string) error {

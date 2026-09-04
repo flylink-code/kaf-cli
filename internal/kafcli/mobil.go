@@ -2,8 +2,10 @@ package kafcli
 
 import (
 	"fmt"
-	"github.com/766b/mobi"
+	"os"
 	"time"
+
+	"github.com/766b/mobi"
 )
 
 type MobiConverter struct{}
@@ -31,7 +33,19 @@ func (convert MobiConverter) Build(book Book) error {
 			}
 		}
 	}
-	m.Write()
+	// 屏蔽第三方 mobi 库内部对每个章节硬编码输出的 fmt.Println("Offset:", ...) 调试日志
+	func() {
+		oldStdout := os.Stdout
+		nullFile, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+		if err == nil {
+			os.Stdout = nullFile
+			defer func() {
+				os.Stdout = oldStdout
+				_ = nullFile.Close()
+			}()
+		}
+		m.Write()
+	}()
 	fmt.Println("生成mobi电子书耗时:", time.Now().Sub(start))
 	return nil
 }

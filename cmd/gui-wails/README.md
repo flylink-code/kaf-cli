@@ -1,24 +1,39 @@
-# Wails Prototype
+# kaf-cli GUI (Wails)
 
-这是一个保留现有 `cmd/gui` 的前提下，新增的 Wails 原型入口。
+这是基于 Wails v2 的 Windows 图形界面版本（`kaf-cli-wails.exe`）。
 
-当前约束：
+### 环境要求
 
-- Go 文件挂在自定义构建标签 `wailsgui` 下，不会影响现有 `go build ./...`
-- 需要先安装 Wails CLI，并把 `github.com/wailsapp/wails/v2` 拉到本地
-- Windows 运行时依赖 WebView2 Runtime
+- Go 1.22+
+- Node.js 18+ / npm
+- Wails CLI v2 (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`)
+- Windows WebView2 Runtime
 
-建议流程：
+### 开发与调试
 
 ```powershell
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-go get github.com/wailsapp/wails/v2@latest
-wails doctor
-cd .\cmd\gui-wails
+# 安装依赖
+cd .\cmd\gui-wails\frontend
+npm install
+
+# 启动开发调试模式（热重载）
+cd ..
 wails dev -tags wailsgui
 ```
 
-如果本机缺少 WebView2 Runtime，可按 Wails 官方文档处理：
+### 构建
 
-- Wails Windows guide: https://wails.io/docs/guides/windows/
-- Microsoft WebView2 distribution: https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution
+根目录一键构建脚本会自动处理前端与后端打包：
+
+```powershell
+.\scripts\build.ps1
+```
+
+如需单独手动构建：
+
+```powershell
+cd .\cmd\gui-wails
+wails build -m -tags wailsgui -ldflags "-s -w"
+```
+
+构建产物将输出在 `cmd/gui-wails/build/bin/kaf-cli-wails.exe`。

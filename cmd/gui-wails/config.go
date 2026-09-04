@@ -42,10 +42,10 @@ type aiTasks struct {
 	Metadata   bool `json:"metadata"`   // 简介生成
 }
 
-// defaultAIConfig 返回推荐默认值：仅启用结构分析，不抽正文。
+// defaultAIConfig 返回全自动推荐默认值：开启所有智能分析任务。
 func defaultAIConfig() aiConfig {
 	return aiConfig{
-		Tasks: aiTasks{Structure: true},
+		Tasks: aiTasks{Structure: true, Typography: true, Noise: true, Metadata: true},
 	}
 }
 

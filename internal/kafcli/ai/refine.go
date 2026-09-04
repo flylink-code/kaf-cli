@@ -194,11 +194,17 @@ func mergeSections(list *SectionList, locs []Located, group []int, log func(stri
 		if idx < 0 || idx >= len(locs) {
 			continue
 		}
-		if sec, ok := sectionAt(*list, locs[idx]); ok && sec.Content != "" {
+		if sec, ok := sectionAt(*list, locs[idx]); ok {
 			if combined.Len() > 0 && !strings.HasSuffix(combined.String(), "\n") {
 				combined.WriteString("\n")
 			}
-			combined.WriteString(sec.Content)
+			// 若被合并项的标题不是规范章号（如纯数字、被误切的正文片段），还原为正文段落拼回，避免正文漏句
+			if shouldRestoreTitleAsContent(sec.Title) {
+				combined.WriteString(fmt.Sprintf("<p class=\"content\">%s</p>\n", sec.Title))
+			}
+			if sec.Content != "" {
+				combined.WriteString(sec.Content)
+			}
 		}
 	}
 	if combined.Len() == 0 {
@@ -246,6 +252,24 @@ func sectionAt(list SectionList, loc Located) (Section, bool) {
 		return Section{}, false
 	}
 	return subs[loc.Index], true
+}
+
+func shouldRestoreTitleAsContent(title string) bool {
+	t := strings.TrimSpace(title)
+	if t == "" {
+		return false
+	}
+	if chapterNumRe.MatchString(t) {
+		return false
+	}
+	lower := strings.ToLower(t)
+	if strings.HasPrefix(lower, "chapter") || strings.HasPrefix(lower, "section") {
+		return false
+	}
+	if isIntroOrOutroTitle(t) {
+		return false
+	}
+	return true
 }
 
 // removeSections 按扁平序号删除章节。先删子章节，再删顶层。

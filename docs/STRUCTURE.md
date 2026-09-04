@@ -4,7 +4,7 @@
 kaf-cli/
 ├── cmd/                    # 可执行程序入口
 │   ├── cli.go              # 命令行 kaf-cli
-│   └── gui/                # Windows 图形界面（windigo）
+│   └── gui-wails/          # Windows 图形界面（Wails v2 + Web 前端）
 ├── internal/kafcli/        # 核心转换库（解析、epub/mobi/azw3）
 ├── lib/                    # CGO 导出（Android 等）
 ├── assets/                 # 图标等资源
@@ -12,7 +12,7 @@ kaf-cli/
 │   ├── build.ps1 / build.sh
 │   └── 注册右键菜单.ps1
 ├── build/                  # 本地编译输出（git 忽略）
-│   └── windows-amd64/      # kaf-cli.exe、kaf-cli-gui.exe
+│   └── windows-amd64/      # kaf-cli.exe、kaf-cli-wails.exe
 ├── docs/                   # 文档与截图
 │   ├── images/
 │   ├── README_wasi.md

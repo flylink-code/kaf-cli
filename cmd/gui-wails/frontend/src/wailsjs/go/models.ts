@@ -1,15 +1,15 @@
 export namespace main {
-
+	
 	export class UpdateInfo {
 	    available: boolean;
 	    current: string;
 	    latest: string;
 	    downloadURL: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new UpdateInfo(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.available = source["available"];
@@ -18,7 +18,6 @@ export namespace main {
 	        this.downloadURL = source["downloadURL"];
 	    }
 	}
-	
 	export class aiTasks {
 	    structure: boolean;
 	    typography: boolean;
@@ -214,6 +213,9 @@ export namespace main {
 	    bookname: string;
 	    author: string;
 	    cover: string;
+	    coverDataURL: string;
+	    fileSize: string;
+	    estimatedWords: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new sourceInsight(source);
@@ -224,7 +226,11 @@ export namespace main {
 	        this.bookname = source["bookname"];
 	        this.author = source["author"];
 	        this.cover = source["cover"];
+	        this.coverDataURL = source["coverDataURL"];
+	        this.fileSize = source["fileSize"];
+	        this.estimatedWords = source["estimatedWords"];
 	    }
 	}
 
 }
+

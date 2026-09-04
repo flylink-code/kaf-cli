@@ -556,6 +556,10 @@ func TestLooksLikeInlineChapterLineKeepsNormalQuotedTitles(t *testing.T) {
 		"第29章 二十八章「第一玩家？」",
 		"第403章 四百零一章“没有战争的世界。”",
 		"第67章 六十六章“她是完美的诺丽雅。”",
+		"第五十九章：那都是演技？对，演技",
+		"第六十九章：大荒囚天指！（5700字",
+		"第七十二章：北海魔女永不团灭！（5000字）",
+		"第一百三十八章：以多欺少？坚毅不倒！（五千求月票",
 	} {
 		if looksLikeInlineChapterLine(line) {
 			t.Fatalf("normal quoted title should not be treated as inline body: %q", line)
@@ -581,6 +585,14 @@ func TestIsFalsePositiveOrdinalTitle(t *testing.T) {
 		"第29章 二十八章「第一玩家？」",
 		"第403章 四百零一章“没有战争的世界。”",
 		"第1313章 一千三百零八章【叙事错误（下）】",
+		"第一章：我等这一刻，望眼欲穿",
+		"第一章: 望眼欲穿",
+		"第一章、望眼欲穿",
+		"第一章 望眼欲穿",
+		"第一章-望眼欲穿",
+		"第一章——望眼欲穿",
+		"第013章",
+		"第二百四十二章 代天巡狩道 (五千四)",
 	} {
 		if isFalsePositiveOrdinalTitle(line) {
 			t.Fatalf("real chapter should not be blocked: %q", line)
@@ -838,4 +850,264 @@ func collectSectionDebugContaining(sections []Section, sub string) []string {
 		}
 	}
 	return details
+}
+
+func TestCleanChapterTitle(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{
+			input: "第二十七章：二阶段，血回满（5500字）",
+			want:  "第二十七章：二阶段，血回满",
+		},
+		{
+			input: "第三十一章：我不明白（三江pk 求追读求票）",
+			want:  "第三十一章：我不明白",
+		},
+		{
+			input: "第三十八章：最后的约会（5000",
+			want:  "第三十八章：最后的约会",
+		},
+		{
+			input: "第一百九十四章 归来的司魔屠（八千",
+			want:  "第一百九十四章 归来的司魔屠",
+		},
+		{
+			input: "第一百九十五章 大被同眠（六千七）",
+			want:  "第一百九十五章 大被同眠",
+		},
+		{
+			input: "第一百九十六章 天劫再临（六千求月票）",
+			want:  "第一百九十六章 天劫再临",
+		},
+		{
+			input: "第两百零一章 大成圣体！(五千七求月票 第二更",
+			want:  "第两百零一章 大成圣体！",
+		},
+		{
+			input: "第二百四十二章 代天巡狩道 (五千四)",
+			want:  "第二百四十二章 代天巡狩道",
+		},
+		{
+			input: "第二百一十四章 求金 (求月票)",
+			want:  "第二百一十四章 求金",
+		},
+		{
+			input: "第1313章 一千三百零八章【叙事错误（下）】",
+			want:  "第1313章 一千三百零八章【叙事错误（下）】",
+		},
+		{
+			input: "第一百章 决战（上）",
+			want:  "第一百章 决战（上）",
+		},
+	}
+
+	for _, tt := range tests {
+		got := cleanChapterTitle(tt.input)
+		if got != tt.want {
+			t.Errorf("cleanChapterTitle(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestIsDividerLine(t *testing.T) {
+	if !isDividerLine("------------") {
+		t.Error("expected ------------ to be recognized as divider")
+	}
+	if !isDividerLine("------") {
+		t.Error("expected ------ to be recognized as divider")
+	}
+	if !isDividerLine("***") {
+		t.Error("expected *** to be recognized as divider")
+	}
+	if isDividerLine("--") {
+		t.Error("expected -- not to be divider (< 3 chars)")
+	}
+	if isDividerLine("普通正文内容") {
+		t.Error("expected normal text not to be divider")
+	}
+}
+
+func TestParseMagicalGirlExampleBook(t *testing.T) {
+	txtPath := filepath.Join("..", "..", "examples", "book", "《从魔法少女开始独断万古》作者：绿茶藨子.txt")
+	if _, err := os.Stat(txtPath); err != nil {
+		t.Skipf("example book not available: %v", err)
+	}
+
+	book := &Book{
+		Filename:        txtPath,
+		DedupTitle:      true,
+		NormalizeQuotes: true,
+		Tips:            false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if book.Bookname != "从魔法少女开始独断万古" {
+		t.Fatalf("unexpected bookname: %q", book.Bookname)
+	}
+	if book.Author != "绿茶藨子" {
+		t.Fatalf("unexpected author: %q", book.Author)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	if len(book.SectionList) < 370 {
+		t.Fatalf("expected at least 370 chapters, got %d", len(book.SectionList))
+	}
+
+	// 验证第一章被正常识别且未被误报拦截
+	if !strings.HasPrefix(book.SectionList[0].Title, "第一章：我等这一刻") {
+		t.Fatalf("unexpected first chapter title: %q", book.SectionList[0].Title)
+	}
+
+	// 验证标题作话被清理
+	for _, sec := range book.SectionList {
+		if strings.Contains(sec.Title, "5500字") || strings.Contains(sec.Title, "求月票") {
+			t.Errorf("found uncleaned noise in title: %q", sec.Title)
+		}
+	}
+}
+
+func TestMergeIsolatedDigitSections(t *testing.T) {
+	sections := []Section{
+		{Title: "第一章 觉醒", Content: "<p>第一段</p>"},
+		{Title: "53", Content: "<p>榜单02: 灵梦</p>"},
+		{Title: "第二章 进发", Content: "<p>第二段</p>"},
+		{Title: "第三章 决战", Content: "<p>第三段</p>"},
+		{Title: "第四章 终曲", Content: "<p>第四段</p>"},
+	}
+	merged := mergeIsolatedDigitSections(sections)
+	if len(merged) != 4 {
+		t.Fatalf("expected 4 sections after merging digit section, got %d", len(merged))
+	}
+	if merged[0].Title != "第一章 觉醒" {
+		t.Errorf("unexpected first section title: %q", merged[0].Title)
+	}
+	if !strings.Contains(merged[0].Content, "53") || !strings.Contains(merged[0].Content, "榜单02: 灵梦") {
+		t.Errorf("digit content should be merged into previous section, got %q", merged[0].Content)
+	}
+}
+
+func TestParseMagicalGirlWithTipsNoDigitChapters(t *testing.T) {
+	txtPath := filepath.Join("..", "..", "examples", "book", "《从魔法少女开始独断万古》作者：绿茶藨子.txt")
+	if _, err := os.Stat(txtPath); err != nil {
+		t.Skipf("example book not available: %v", err)
+	}
+
+	book := &Book{
+		Filename:        txtPath,
+		DedupTitle:      true,
+		NormalizeQuotes: true,
+		Tips:            true, // 模拟 GUI 默认开启 Tips 的环境
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	// 验证解析出的所有章节中没有任何纯数字标题（如 53, 33, 97, 1）
+	digitRe := regexp.MustCompile(`^\d{1,5}$`)
+	for _, sec := range book.SectionList {
+		if digitRe.MatchString(strings.TrimSpace(sec.Title)) {
+			t.Errorf("found digit-only chapter title: %q", sec.Title)
+		}
+	}
+}
+
+func TestBuildMagicalGirlEpub(t *testing.T) {
+	txtPath := filepath.Join("..", "..", "examples", "book", "《从魔法少女开始独断万古》作者：绿茶藨子.txt")
+	if _, err := os.Stat(txtPath); err != nil {
+		t.Skipf("example book not available: %v", err)
+	}
+
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "out")
+
+	book := &Book{
+		Filename:        txtPath,
+		Out:             outPath,
+		Format:          "epub",
+		DedupTitle:      true,
+		NormalizeQuotes: true,
+		Tips:            false,
+		Cover:           "none",
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+	if err := book.Convert(); err != nil {
+		t.Fatalf("unexpected convert error: %v", err)
+	}
+
+	epubFile := outPath + ".epub"
+	stat, err := os.Stat(epubFile)
+	if err != nil {
+		t.Fatalf("epub file not generated: %v", err)
+	}
+	if stat.Size() < 100*1024 {
+		t.Fatalf("epub file too small: %d bytes", stat.Size())
+	}
+}
+
+func TestParseAutoDetectsQuotesAndDedup(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "auto_test.txt")
+	content := strings.Join([]string{
+		"第1章 开启",
+		"「你终于来了。」主角说道：「等你好久。」",
+		"第2章 冒险",
+		"正文内容第二章",
+		"第2章 冒险",
+		"正文内容第二章重复行",
+		"53",
+		"积分榜单：100分",
+		"第3章 终章",
+		"正文第三章",
+	}, "\n")
+	if err := os.WriteFile(txtPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 初始不显式开启 DedupTitle 与 NormalizeQuotes
+	book := &Book{
+		Filename:        txtPath,
+		DedupTitle:      false,
+		NormalizeQuotes: false,
+		Tips:            false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	// 验证自适应检测直角引号并规范化
+	if !book.NormalizeQuotes {
+		t.Error("expected NormalizeQuotes to be automatically enabled")
+	}
+	if !strings.Contains(book.SectionList[0].Content, "“你终于来了。”主角说道：“等你好久。”") {
+		t.Errorf("quotes were not normalized in content: %q", book.SectionList[0].Content)
+	}
+
+	// 验证自适应检测到章节重复和孤立数字行并自动去重
+	if !book.DedupTitle {
+		t.Error("expected DedupTitle to be automatically enabled")
+	}
+	// 第2章重复与孤立数字53均被合并或清除，最终应为3章
+	if len(book.SectionList) != 3 {
+		t.Errorf("expected 3 chapters after auto dedup, got %d", len(book.SectionList))
+	}
 }

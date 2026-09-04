@@ -3,14 +3,18 @@ package ai
 import (
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
-// structureEntry 是扁平章节在结构分析中的最小上下文（不上传正文）。
+// structureEntry 是扁平章节在结构分析中的上下文表示。
 type structureEntry struct {
-	Title string
-	Empty bool // 无正文（仅目录行）
+	Title       string
+	Empty       bool   // 无正文（仅目录行）
+	CharCount   int    // 正文字符数
+	SnippetHead string // 正文开头截取片段，供 AI 理解章节内容
+	SnippetTail string // 正文结尾截取片段，供 AI 判断与后文连贯性
 }
 
 const (
@@ -20,8 +24,9 @@ const (
 )
 
 var (
-	chapterNumRe = regexp.MustCompile(`第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
-	urlInTitleRe = regexp.MustCompile(`(?i)(https?://|www\.)`)
+	chapterNumRe      = regexp.MustCompile(`第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
+	urlInTitleRe      = regexp.MustCompile(`(?i)(https?://|www\.)`)
+	pureDigitsTitleRe = regexp.MustCompile(`^\d{1,6}$`)
 )
 
 // titleWatermarkKeywords 采集站/广告常见水印词。
@@ -40,32 +45,68 @@ type suspectRange struct {
 	Reasons []string
 }
 
-// flattenStructureEntries 与 SectionList.Flatten 对齐，额外标记是否无正文。
+// flattenStructureEntries 与 SectionList.Flatten 对齐，并提取正文字数与首尾文本片段。
 func flattenStructureEntries(list SectionList) []structureEntry {
 	var out []structureEntry
 	for _, sec := range list {
 		if len(sec.Sections) == 0 {
+			empty, count, head, tail := extractEntryContext(sec.Content)
 			out = append(out, structureEntry{
-				Title: sec.Title,
-				Empty: isEmptyContent(sec.Content),
+				Title:       sec.Title,
+				Empty:       empty,
+				CharCount:   count,
+				SnippetHead: head,
+				SnippetTail: tail,
 			})
 			continue
 		}
 		for _, sub := range sec.Sections {
+			empty, count, head, tail := extractEntryContext(sub.Content)
 			out = append(out, structureEntry{
-				Title: sub.Title,
-				Empty: isEmptyContent(sub.Content),
+				Title:       sub.Title,
+				Empty:       empty,
+				CharCount:   count,
+				SnippetHead: head,
+				SnippetTail: tail,
 			})
 		}
 	}
 	return out
 }
 
+func extractEntryContext(html string) (empty bool, charCount int, head, tail string) {
+	text := strings.TrimSpace(plainText(html))
+	if text == "" {
+		return true, 0, "", ""
+	}
+	// 压缩连续空白与换行，方便 AI 精确阅读上下文
+	compact := strings.Join(strings.Fields(text), " ")
+	runes := []rune(compact)
+	charCount = len(runes)
+	if charCount == 0 {
+		return true, 0, "", ""
+	}
+	const maxHead = 120
+	const maxTail = 60
+	if charCount <= maxHead {
+		head = compact
+		tail = compact
+	} else {
+		head = string(runes[:maxHead]) + "..."
+		if charCount > maxTail {
+			tail = "..." + string(runes[charCount-maxTail:])
+		} else {
+			tail = compact
+		}
+	}
+	return false, charCount, head, tail
+}
+
 func isEmptyContent(html string) bool {
 	return strings.TrimSpace(plainText(html)) == ""
 }
 
-// detectStructureSuspects 本地扫描标题疑点，返回合并后的复核区间。
+// detectStructureSuspects 本地扫描标题与正文疑点，返回合并后的复核区间。
 func detectStructureSuspects(entries []structureEntry) []suspectRange {
 	n := len(entries)
 	if n == 0 {
@@ -98,13 +139,26 @@ func detectStructureSuspects(entries []structureEntry) []suspectRange {
 		if e.Empty && chapterNumRe.MatchString(title) {
 			flags[i] = append(flags[i], "无正文目录行")
 		}
+		// 基于上下文的疑点增强判断
+		if pureDigitsTitleRe.MatchString(title) {
+			flags[i] = append(flags[i], "纯数字疑似正文截断")
+		}
+		if !e.Empty && e.CharCount > 0 && e.CharCount < 50 && !isIntroOrOutroTitle(title) {
+			flags[i] = append(flags[i], "正文极短疑似切分碎片")
+		}
+		if (strings.HasPrefix(title, "「") || strings.HasPrefix(title, "“") || strings.HasPrefix(title, "”") || strings.HasPrefix(title, "」")) && !chapterNumRe.MatchString(title) {
+			flags[i] = append(flags[i], "对话引号开头疑似正文行")
+		}
+		if strings.HasSuffix(title, "，") || strings.HasSuffix(title, ",") || strings.HasSuffix(title, "。") {
+			flags[i] = append(flags[i], "含句末标点疑似正文行")
+		}
 		if key := chapterKeySimple(title); key != "" {
 			if prev, ok := lastKeyAt[key]; ok && i-prev <= 4 {
 				flags[i] = append(flags[i], "章号重复")
 				flags[prev] = appendUnique(flags[prev], "章号重复")
 			}
 			lastKeyAt[key] = i
-			if num, ok := parseArabicChapterNum(key); ok {
+			if num, ok := parseChapterOrdinalNum(key); ok {
 				if prevNum >= 0 && num > prevNum+1 && num-prevNum <= 20 {
 					flags[i] = append(flags[i], "章号跳号")
 				}
@@ -113,6 +167,16 @@ func detectStructureSuspects(entries []structureEntry) []suspectRange {
 		}
 	}
 	return mergeSuspectFlags(flags, n, structureSuspectPadding, structureMaxSuspectBatch)
+}
+
+func isIntroOrOutroTitle(title string) bool {
+	t := strings.TrimSpace(title)
+	for _, kw := range []string{"引子", "楔子", "序章", "序言", "前言", "后记", "尾声", "完本感言", "上架感言", "番外", "附录"} {
+		if strings.HasPrefix(t, kw) {
+			return true
+		}
+	}
+	return false
 }
 
 func titleWatermarkReason(title string) string {
@@ -133,15 +197,61 @@ func chapterKeySimple(title string) string {
 	return ""
 }
 
-func parseArabicChapterNum(key string) (int, bool) {
-	n := 0
-	for _, r := range key {
-		if r < '0' || r > '9' {
-			return 0, false
-		}
-		n = n*10 + int(r-'0')
+func parseChapterOrdinalNum(raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
 	}
-	return n, n > 0
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		return n, true
+	}
+
+	digits := map[rune]int{
+		'零': 0,
+		'〇': 0,
+		'一': 1,
+		'二': 2,
+		'两': 2,
+		'三': 3,
+		'四': 4,
+		'五': 5,
+		'六': 6,
+		'七': 7,
+		'八': 8,
+		'九': 9,
+	}
+	units := map[rune]int{
+		'十': 10,
+		'百': 100,
+		'千': 1000,
+		'万': 10000,
+	}
+
+	total := 0
+	current := 0
+	seen := false
+	for _, r := range raw {
+		if v, ok := digits[r]; ok {
+			current = v
+			seen = true
+			continue
+		}
+		if unit, ok := units[r]; ok {
+			if current == 0 {
+				current = 1
+			}
+			total += current * unit
+			current = 0
+			seen = true
+			continue
+		}
+		return 0, false
+	}
+	if !seen {
+		return 0, false
+	}
+	res := total + current
+	return res, res > 0
 }
 
 func looksLikeGarbageTitle(title string) bool {

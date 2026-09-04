@@ -34,36 +34,47 @@ func (t TaskKind) Name() string {
 
 // ---- Prompt 构造 ----
 
-const structureSystem = `你是电子书章节结构校对专家，精通中文网文章节标题规律。
-用户会给你一本小说经规则引擎粗解析后的章节标题列表（已带全局序号）。
-请找出以下结构问题并返回 JSON 操作建议：
-1. rename: 被污染/截断/带采集站水印的标题，给出干净的新标题。
-2. merge: 内容本属同一章但被规则引擎拆成多节，给出序号组（保留首个，其余正文拼到首个）。
+const structureSystem = `你是电子书章节结构校对专家，精通中文网文章节标题规律与目录纠错。
+用户会给你一组粗解析后的章节信息（已带全局序号），包含【章节标题】以及结合原文上下文提取的【正文字数、开头片段、结尾片段】。
+请综合分析标题与原文上下文，找出以下结构问题并返回 JSON 操作建议：
+1. rename: 被污染/截断/带采集站水印的标题，给出干净的新标题。若标题缺失但正文开头有明确章名，可提取修正。
+2. merge: 内容本属同一章但被规则引擎错误拆分（例如正文中的纯数字点赞数/榜单/对话句/倒计时被误判为新章节，或前后两节内容连贯应属同一章），给出序号组 [保留的首章序号, 被合并的章节序号...]。被合并章节的正文会按顺序拼接并入首章。
 3. remove: 明显的噪音目录行、采集尾巴、无正文且与相邻章节重复的空目录行。
 
 严格要求：
+- 充分依据给出的正文字数与首尾片段进行上下文推理：若某一小节标题为数字或短句且正文极短，往往是正文误切分碎片，应 merge 到上一正常章节。
 - 宁缺毋滥，只返回高置信度（>90%）的建议，避免改坏正常章节。
 - 序号必须严格对应输入列表中的 [n] 编号。
-- 不要臆测正文内容，只依据给定标题判断。
-- 只输出合法 json 对象，不要 markdown 代码块，不要任何额外解释。
+- 只输出合法 JSON 对象，不要 markdown 代码块，不要任何额外解释。
 - 若无问题也必须返回：{"rename":{},"merge":[],"remove":[]}`
 
-func buildStructurePrompt(titles []string, indexOffset int, reasons string) string {
+func buildStructurePrompt(entries []structureEntry, indexOffset int, reasons string) string {
 	var b strings.Builder
 	if reasons != "" {
 		b.WriteString("本地规则标记的疑点：")
 		b.WriteString(reasons)
 		b.WriteString("\n\n")
 	}
-	b.WriteString("章节标题列表（共 ")
-	fmt.Fprintf(&b, "%d", len(titles))
-	b.WriteString(" 章")
+	b.WriteString("待复核章节列表（共 ")
+	fmt.Fprintf(&b, "%d", len(entries))
+	b.WriteString(" 个条目")
 	if indexOffset > 0 {
 		fmt.Fprintf(&b, "，全局序号从 [%d] 起", indexOffset)
 	}
 	b.WriteString("）：\n")
-	for i, t := range titles {
-		fmt.Fprintf(&b, "[%d] %s\n", indexOffset+i, t)
+	for i, e := range entries {
+		idx := indexOffset + i
+		if e.Empty {
+			fmt.Fprintf(&b, "[%d] %s（空章节/仅目录行）\n", idx, e.Title)
+		} else {
+			fmt.Fprintf(&b, "[%d] %s（正文约 %d 字）\n", idx, e.Title, e.CharCount)
+			if e.SnippetHead != "" {
+				fmt.Fprintf(&b, "  正文开头：%s\n", e.SnippetHead)
+			}
+			if e.SnippetTail != "" && e.SnippetTail != e.SnippetHead {
+				fmt.Fprintf(&b, "  正文结尾：%s\n", e.SnippetTail)
+			}
+		}
 	}
 	b.WriteString("\n请只输出合法 json，格式如下：\n")
 	b.WriteString(`{"rename":{"序号":"新标题"}, "merge":[[序号,序号,...]], "remove":[序号]}
@@ -73,9 +84,10 @@ func buildStructurePrompt(titles []string, indexOffset int, reasons string) stri
 }
 
 const typographySystem = `你是中文网文排版校对专家。用户会给你一本书前若干章节的正文抽样。
-请诊断其中的排版问题（引号配对混乱、省略号不统一、标点全半角混用、
+请诊断其中的排版问题（引号配对混乱、直角引号「」『』遗留、省略号不统一、标点全半角混用、
 多余的空格/制表符、段首缩进异常等），并返回一组「原文片段→修正片段」的替换规则。
 这些规则会被本地程序全文应用，所以：
+- 特别注意对话引号：若正文中包含繁体/日台式直角引号（「」与『』），请给出转换为标准中文弯双引号（“”）与弯单引号（‘’）的替换规则。
 - 每条 from 必须是精确的、能唯一定位错误模式的子串（通常是连续的标点/符号片段）。
 - 不要给出整句替换，避免误伤。
 - 优先覆盖高频、可机械替换的模式。
@@ -122,17 +134,13 @@ func runStructure(ctx context.Context, c *Client, list SectionList, log func(str
 	if total == 0 {
 		return StructurePlan{Rename: map[int]string{}}, nil
 	}
-	titles := make([]string, total)
-	for i, e := range entries {
-		titles[i] = e.Title
-	}
 
 	suspects := detectStructureSuspects(entries)
 	if len(suspects) == 0 {
 		log("AI: 未发现可疑章节结构，跳过远程分析")
 		return StructurePlan{Rename: map[int]string{}}, nil
 	}
-	log(fmt.Sprintf("AI: 本地发现 %d 处疑点，复核 %d 个标题（全书 %d 章）",
+	log(fmt.Sprintf("AI: 本地发现 %d 处疑点，复核 %d 个条目（全书 %d 章）",
 		len(suspects), countSuspectTitles(suspects), total))
 
 	merged := StructurePlan{Rename: make(map[int]string)}
@@ -144,7 +152,7 @@ func runStructure(ctx context.Context, c *Client, list SectionList, log func(str
 		}
 		reasons := strings.Join(sr.Reasons, "；")
 		log(fmt.Sprintf("AI: 复核 [%d]-[%d]（%s）", sr.Start, sr.End, reasons))
-		batch := titles[sr.Start : sr.End+1]
+		batch := entries[sr.Start : sr.End+1]
 		plan, err := runStructureChunk(ctx, c, batch, sr.Start, total, reasons)
 		if err != nil {
 			return StructurePlan{}, err
@@ -154,8 +162,8 @@ func runStructure(ctx context.Context, c *Client, list SectionList, log func(str
 	return sanitizeStructure(merged, total), nil
 }
 
-func runStructureChunk(ctx context.Context, c *Client, titles []string, indexOffset, total int, reasons string) (StructurePlan, error) {
-	prompt := buildStructurePrompt(titles, indexOffset, reasons)
+func runStructureChunk(ctx context.Context, c *Client, entries []structureEntry, indexOffset, total int, reasons string) (StructurePlan, error) {
+	prompt := buildStructurePrompt(entries, indexOffset, reasons)
 	resp, err := c.Chat(ctx, structureSystem, prompt, true)
 	if err != nil {
 		return StructurePlan{}, err

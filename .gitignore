@@ -8,9 +8,10 @@
 *.zio
 build/
 kaf-cli.syso
-cmd/gui/*.syso
 kaf-cli-*
 samples
 examples/
+node_modules/
+dist/
 docs/dev/
 docs/OPTIMIZATION_PLAN.md

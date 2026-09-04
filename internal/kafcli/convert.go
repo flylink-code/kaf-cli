@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/ystyle/kaf-cli/internal/kafcli/ai"
@@ -86,7 +87,7 @@ const (
 	mobiTtmlTitleStart = `<h3 style="text-align:%s;">`
 	htmlTitleEnd       = "</h3>"
 	VolumeMatch        = "^第[0-9一二三四五六七八九十零〇百千两 ]+卷"
-	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷].*|^[零〇一二三四五六七八九十百千两0-9]{1,12}[章回节集卷]·.*|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^引子$|^楔子$|^章节目录$|^章节$|^序章"
+	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷].*|^[零〇一二三四五六七八九十百千两0-9]{1,12}[章回节集卷]·.*|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^引子.*|^楔子.*|^章节目录$|^章节$|^序章.*|^上架感言.*|^完本感言.*|^番外.*|^后记.*|^尾声.*"
 	cssContent         = `
 .title {text-align:%s}
 .content {
@@ -94,6 +95,11 @@ const (
   margin-top: 0;
   text-indent: %dem;
   %s
+}
+.divider {
+  border: 0;
+  border-top: 1px dashed #cccccc;
+  margin: 1.5em 0;
 }
 `
 	Tutorial = `本书由kaf-cli生成: <br/>
@@ -294,6 +300,24 @@ func (book *Book) Parse() error {
 	}
 	defer reader.Close()
 	buf := bufio.NewReader(reader)
+
+	// 自动嗅探对话引号排版习惯（直角引号 「」『』）
+	sampleBytes, _ := buf.Peek(65536)
+	if len(sampleBytes) == 0 {
+		sampleBytes, _ = buf.Peek(4096)
+	}
+	if len(sampleBytes) > 0 {
+		sampleStr := string(sampleBytes)
+		cornerCount := strings.Count(sampleStr, "「") + strings.Count(sampleStr, "」") +
+			strings.Count(sampleStr, "『") + strings.Count(sampleStr, "』")
+		if cornerCount >= 2 {
+			if !book.NormalizeQuotes {
+				book.NormalizeQuotes = true
+				fmt.Println("AI/智能排版: 检测到正文包含「」『』直角引号，已自动启用对话引号规范化")
+			}
+		}
+	}
+
 	var title string
 	var content bytes.Buffer
 	for {
@@ -343,20 +367,23 @@ func (book *Book) Parse() error {
 			continue
 		}
 		// 处理标题
-		if utf8.RuneCountInString(line) <= int(book.Max) &&
-			(book.Reg.MatchString(line) || book.VolumeReg.MatchString(line)) &&
+		cleanedTitle := cleanChapterTitle(line)
+		if (utf8.RuneCountInString(line) <= int(book.Max) || utf8.RuneCountInString(cleanedTitle) <= int(book.Max)) &&
+			(book.Reg.MatchString(line) || book.VolumeReg.MatchString(line) || book.Reg.MatchString(cleanedTitle)) &&
 			!isFalsePositiveOrdinalTitle(line) &&
 			!looksLikeInlineChapterLine(line) {
 			if title == "" {
 				title = book.UnknowTitle
 			}
 			if content.Len() > 0 || title != book.UnknowTitle {
-				contentList = append(contentList, Section{
-					Title:   title,
-					Content: content.String(),
-				})
+				if title != book.UnknowTitle || !isTrivialPreface(content.String()) {
+					contentList = append(contentList, Section{
+						Title:   title,
+						Content: content.String(),
+					})
+				}
 			}
-			title = line
+			title = cleanedTitle
 			content.Reset()
 			continue
 		}
@@ -375,9 +402,19 @@ func (book *Book) Parse() error {
 			Content: content.String(),
 		})
 	}
+	// 智能目录去重自适应识别：若用户未开启但处于 AI 模式或检测到重复疑点，自动开启
+	if !book.DedupTitle && (book.AIOptions.Enabled || hasDuplicateOrIsolatedSections(contentList)) {
+		book.DedupTitle = true
+		fmt.Println("AI/智能排版: 检测到章节目录存在重复或误切分疑点，已自动启用智能目录去重")
+	}
 	if book.DedupTitle {
+		beforeLen := len(contentList)
 		contentList = dedupTitleSections(contentList)
 		contentList = dedupRepeatedSections(contentList)
+		contentList = mergeIsolatedDigitSections(contentList)
+		if diff := beforeLen - len(contentList); diff > 0 {
+			fmt.Printf("智能目录去重: 已自动合并/清理 %d 处重复或误切分章节\n", diff)
+		}
 	}
 	var sectionList []Section
 	var volumeSection *Section
@@ -488,6 +525,10 @@ func (book *Book) Convert() error {
 }
 
 func addPart(buff *bytes.Buffer, content string) {
+	if isDividerLine(content) {
+		buff.WriteString(`<hr class="divider"/>`)
+		return
+	}
 	if strings.HasSuffix(content, "==") ||
 		strings.HasSuffix(content, "**") ||
 		strings.HasSuffix(content, "--") ||
@@ -498,4 +539,52 @@ func addPart(buff *bytes.Buffer, content string) {
 	buff.WriteString(htmlPStart)
 	buff.WriteString(content)
 	buff.WriteString(htmlPEnd)
+}
+
+func isTrivialPreface(content string) bool {
+	var text strings.Builder
+	inTag := false
+	for _, r := range content {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag && !unicode.IsSpace(r) {
+			text.WriteRune(r)
+		}
+	}
+	return text.Len() == 0
+}
+
+func hasDuplicateOrIsolatedSections(sections []Section) bool {
+	if len(sections) <= 1 {
+		return false
+	}
+	for i := 0; i < len(sections)-1; i++ {
+		if sections[i].Content == "" {
+			k1 := chapterKey(sections[i].Title)
+			k2 := chapterKey(sections[i+1].Title)
+			if k1 != "" && k1 == k2 {
+				return true
+			}
+		}
+	}
+	stdCount := 0
+	digitCount := 0
+	for _, sec := range sections {
+		if chapterKeyReg.MatchString(sec.Title) || chapterDualKeyReg.MatchString(sec.Title) ||
+			strings.HasPrefix(strings.ToLower(sec.Title), "chapter") {
+			stdCount++
+		} else if pureDigitTitleRegex.MatchString(strings.TrimSpace(sec.Title)) {
+			digitCount++
+		}
+	}
+	if stdCount >= 3 && digitCount > 0 && float64(stdCount)/float64(len(sections)) >= 0.6 {
+		return true
+	}
+	return false
 }

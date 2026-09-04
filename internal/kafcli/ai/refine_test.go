@@ -323,6 +323,27 @@ func TestSanitizeStructureDropsInvalid(t *testing.T) {
 	}
 }
 
+func TestStructureMergeContextualTruncatedChapter(t *testing.T) {
+	// 模拟 AI 识别到纯数字被错误切出为章节，根据上下文指示将 1 合并到 0
+	resp := `{"merge":[[0,1]]}`
+	c := newMockClient(t, 200, fixedContent(resp))
+	list := SectionList{
+		{Title: "第1章 觉醒", Content: "<p class=\"content\">榜单前十名：01. 某某</p>"},
+		{Title: "53", Content: "<p class=\"content\">02. 另外一人 53</p>"},
+		{Title: "第2章 启程", Content: "<p class=\"content\">天高气爽。</p>"},
+	}
+	out, _ := Refine(list, RefineOptions{Enabled: true, Client: c, DoStructure: true})
+	if len(out) != 2 {
+		t.Fatalf("expected 2 sections after merging truncated chapter, got %d", len(out))
+	}
+	if out[0].Title != "第1章 觉醒" {
+		t.Fatalf("unexpected title for section 0: %q", out[0].Title)
+	}
+	if !strings.Contains(out[0].Content, "榜单前十名") || !strings.Contains(out[0].Content, "02. 另外一人 53") {
+		t.Fatalf("expected content of 53 to be merged into chapter 1, got %q", out[0].Content)
+	}
+}
+
 func TestSanitizeNoiseLengthBounds(t *testing.T) {
 	plan := NoisePlan{Substrings: []string{"ab", strings.Repeat("长", 80), "正常特征"}}
 	got := sanitizeNoise(plan)
@@ -418,7 +439,7 @@ func TestParseStructureNoChangeText(t *testing.T) {
 }
 
 func TestStructurePromptUsesGlobalOffset(t *testing.T) {
-	prompt := buildStructurePrompt([]string{"第1章", "第2章"}, 350, "")
+	prompt := buildStructurePrompt([]structureEntry{{Title: "第1章"}, {Title: "第2章"}}, 350, "")
 	if !strings.Contains(prompt, "[350]") || !strings.Contains(prompt, "[351]") {
 		t.Fatalf("expected global indices in prompt, got %q", prompt)
 	}

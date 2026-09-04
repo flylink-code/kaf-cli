@@ -25,7 +25,37 @@ var (
 	filenameMetaReg     = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt`)
 	partDivisionLabelRe = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+部$`)
 	roundLabelRe        = regexp.MustCompile(`^(第?[0-9一二三四五六七八九十零〇百千两]+回合|【?第?[0-9一二三四五六七八九十零〇百千两]+回合结束|【?双方行棋，第?[0-9一二三四五六七八九十零〇百千两]+回合)`)
+
+	falsePositiveOrdinalRegs = []*regexp.Regexp{
+		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+节课`),
+		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章·`),
+		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章[^「“『"‘【\[\(（《<〔〈\s　\t：:、，,\-—–~～\.．！!？?]`),
+	}
+
+	titleTrailingParenRegex     = regexp.MustCompile(`\s*[(（][^()（）]*(?:字|更|月票|求票|求追读|求收藏|求推荐|求订阅|求支持|打赏|加更|补更|二合一|[pP][kK])[^()（）]*[)）]?\s*$`)
+	titleTrailingWordCountRegex = regexp.MustCompile(`\s*[(（]\s*[0-9一二两三四五六七八九十百千]{2,6}\s*(?:字)?\s*[)）]?\s*$`)
 )
+
+// cleanChapterTitle 清理章节标题尾部的作话、字数统计、求月票等杂质。
+func cleanChapterTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return title
+	}
+	for {
+		prev := title
+		title = titleTrailingParenRegex.ReplaceAllString(title, "")
+		title = titleTrailingWordCountRegex.ReplaceAllString(title, "")
+		title = strings.TrimSpace(title)
+		if title == prev || title == "" {
+			break
+		}
+	}
+	if title == "" {
+		return strings.TrimSpace(title)
+	}
+	return title
+}
 
 // isPartDivisionLabel 判断是否为「第一部」「第三部」等正文分篇行（非目录章节）。
 func isPartDivisionLabel(line string) bool {
@@ -36,17 +66,30 @@ func isRoundLabel(line string) bool {
 	return roundLabelRe.MatchString(strings.TrimSpace(line))
 }
 
+// isDividerLine 判断是否为段落分割线，例如 "------------"、"------"、"***" 等。
+func isDividerLine(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if len(trimmed) < 3 {
+		return false
+	}
+	r := rune(trimmed[0])
+	if r != '-' && r != '—' && r != '*' && r != '=' && r != '_' {
+		return false
+	}
+	for _, ch := range trimmed {
+		if ch != r {
+			return false
+		}
+	}
+	return true
+}
+
 func isFalsePositiveOrdinalTitle(line string) bool {
 	line = normalizeLineQuotes(strings.TrimSpace(line))
 	if line == "" {
 		return false
 	}
-	falsePositiveRegs := []*regexp.Regexp{
-		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+节课`),
-		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章·`),
-		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章[^「“『【\[\(（《< ]`),
-	}
-	for _, re := range falsePositiveRegs {
+	for _, re := range falsePositiveOrdinalRegs {
 		if re.MatchString(line) {
 			return true
 		}
@@ -402,6 +445,48 @@ func dedupTitleSections(sections []Section) []Section {
 	return result
 }
 
+var pureDigitTitleRegex = regexp.MustCompile(`^\d{1,5}$`)
+
+// mergeIsolatedDigitSections 合并中文网文中被正则误切为章节的孤立纯数字行。
+// 当全书中绝大多数章节（>=60% 且至少 3 章）为规范的「第X章/卷」或「Chapter」时，
+// 零散出现在正文中的纯数字（如打赏积分、页码、点赞数）判定为正文误切分，将其拼回前一章正文。
+func mergeIsolatedDigitSections(sections []Section) []Section {
+	if len(sections) <= 2 {
+		return sections
+	}
+	standardChapterCount := 0
+	for _, sec := range sections {
+		if chapterKeyReg.MatchString(sec.Title) || chapterDualKeyReg.MatchString(sec.Title) ||
+			strings.HasPrefix(strings.ToLower(sec.Title), "chapter") {
+			standardChapterCount++
+		}
+	}
+	if standardChapterCount < 3 || float64(standardChapterCount)/float64(len(sections)) < 0.6 {
+		return sections
+	}
+
+	var merged []Section
+	for _, sec := range sections {
+		if pureDigitTitleRegex.MatchString(strings.TrimSpace(sec.Title)) && len(merged) > 0 {
+			lastIdx := len(merged) - 1
+			var sb strings.Builder
+			sb.WriteString(merged[lastIdx].Content)
+			if sb.Len() > 0 && !strings.HasSuffix(sb.String(), "\n") {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(fmt.Sprintf(`<p class="content">%s</p>`, strings.TrimSpace(sec.Title)))
+			sb.WriteString("\n")
+			if sec.Content != "" {
+				sb.WriteString(sec.Content)
+			}
+			merged[lastIdx].Content = sb.String()
+			continue
+		}
+		merged = append(merged, sec)
+	}
+	return merged
+}
+
 func normalizeChapterContent(content string) string {
 	content = strings.TrimSpace(content)
 	if content == "" {
@@ -666,15 +751,28 @@ func looksLikeInlineChapterLine(line string) bool {
 	if key == "" {
 		return false
 	}
-	for _, mark := range []string{"。", "！", "？", "!", "?"} {
-		if idx := strings.Index(line, mark); idx >= 0 && idx+len(mark) < len(line) {
-			rest := strings.TrimSpace(line[idx+len(mark):])
-			rest = strings.TrimSpace(strings.Trim(rest, `"'”’」』】）》)）]》·`))
+	cleaned := cleanChapterTitle(line)
+
+	// 1. 如果标题包含成对引号，检查闭合引号后面是否粘连了正文叙述
+	for _, closing := range []string{"”", "」", "』", "\""} {
+		if idx := strings.LastIndex(cleaned, closing); idx >= 0 && idx+len(closing) < len(cleaned) {
+			rest := strings.TrimSpace(cleaned[idx+len(closing):])
+			rest = strings.Trim(rest, "· \t\r\n")
 			if rest != "" {
 				return true
 			}
 		}
 	}
+
+	// 2. 如果包含陈述句句号「。」，且句号后还有正文文字，说明是标题后粘连了正文句子
+	if idx := strings.Index(cleaned, "。"); idx >= 0 && idx+len("。") < len(cleaned) {
+		rest := strings.TrimSpace(cleaned[idx+len("。"):])
+		rest = strings.Trim(rest, `"'”’」』】）》)）]》· \t\r\n`)
+		if rest != "" {
+			return true
+		}
+	}
+
 	return false
 }
 
