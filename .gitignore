@@ -12,6 +12,11 @@ kaf-cli-*
 samples
 examples/
 node_modules/
+**/node_modules/
+.vite/
+**/.vite/
 dist/
+**/dist/
+cmd/gui-wails/build/bin/
 docs/dev/
 docs/OPTIMIZATION_PLAN.md
