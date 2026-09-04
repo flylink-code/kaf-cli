@@ -1,6 +1,8 @@
 package kafcli
 
 import (
+	"archive/zip"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -297,6 +299,133 @@ func TestCheckDefaultCoverFallsBackToJPEG(t *testing.T) {
 	}
 	if book.Cover != jpegPath {
 		t.Fatalf("expected jpeg cover fallback %q, got %q", jpegPath, book.Cover)
+	}
+}
+
+func TestCheckDefaultCoverFallsBackToWebP(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "book.txt")
+	if err := os.WriteFile(txtPath, []byte("第1章 开头\n正文\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	webpPath := filepath.Join(dir, "cover.webp")
+	if err := os.WriteFile(webpPath, []byte("fake webp"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	book := &Book{
+		Filename: txtPath,
+	}
+	book.SetDefault()
+
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if book.Cover != webpPath {
+		t.Fatalf("expected webp cover fallback %q, got %q", webpPath, book.Cover)
+	}
+}
+
+func TestCheckCustomCoverNumericName(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "book.txt")
+	if err := os.WriteFile(txtPath, []byte("第1章 开头\n正文\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	customCoverPath := filepath.Join(dir, "1.png")
+	if err := os.WriteFile(customCoverPath, []byte("fake png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	book := &Book{
+		Filename: txtPath,
+		Cover:    customCoverPath,
+	}
+	book.SetDefault()
+
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if book.Cover != customCoverPath {
+		t.Fatalf("expected custom cover %q, got %q", customCoverPath, book.Cover)
+	}
+}
+
+func TestEpubBuildWithNumericCoverName(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "book.txt")
+	if err := os.WriteFile(txtPath, []byte("第1章 开头\n正文第一行\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 最小有效 1x1 PNG 二进制数据
+	pngBytes := []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+		0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0x63, 0x34, 0x00, 0x00, 0x00,
+		0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
+		0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+	}
+	customCoverPath := filepath.Join(dir, "1.png")
+	if err := os.WriteFile(customCoverPath, pngBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	outPath := filepath.Join(dir, "output")
+	book := &Book{
+		Filename: txtPath,
+		Bookname: "测试书",
+		Author:   "测试作者",
+		Out:      outPath,
+		Cover:    customCoverPath,
+		SectionList: []Section{
+			{Title: "第1章 开头", Content: "<p>正文内容</p>"},
+		},
+	}
+	book.SetDefault()
+
+	converter := EpubConverter{}
+	if err := converter.Build(*book); err != nil {
+		t.Fatalf("EpubConverter.Build failed: %v", err)
+	}
+
+	epubFile := outPath + ".epub"
+	zr, err := zip.OpenReader(epubFile)
+	if err != nil {
+		t.Fatalf("failed to open generated epub zip: %v", err)
+	}
+	defer zr.Close()
+
+	var opfContent string
+	for _, f := range zr.File {
+		if strings.HasSuffix(f.Name, "package.opf") {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("failed to open opf file in epub: %v", err)
+			}
+			data, err := io.ReadAll(rc)
+			_ = rc.Close()
+			if err != nil {
+				t.Fatalf("failed to read opf content: %v", err)
+			}
+			opfContent = string(data)
+			break
+		}
+	}
+
+	if opfContent == "" {
+		t.Fatal("package.opf not found in generated epub")
+	}
+
+	// 验证：元数据中指定的 cover 必须与 manifest 中一致，且为规范的 cover.png，绝不能是失配的 1.png 或 id1.png
+	if !strings.Contains(opfContent, `content="cover.png"`) {
+		t.Fatalf("expected meta cover content=\"cover.png\", got opf:\n%s", opfContent)
+	}
+	if !strings.Contains(opfContent, `id="cover.png"`) {
+		t.Fatalf("expected manifest item id=\"cover.png\", got opf:\n%s", opfContent)
+	}
+	if strings.Contains(opfContent, `content="1.png"`) || strings.Contains(opfContent, `id="id1.png"`) {
+		t.Fatalf("opf still contains mismatched numeric cover identifiers:\n%s", opfContent)
 	}
 }
 
@@ -1109,5 +1238,120 @@ func TestParseAutoDetectsQuotesAndDedup(t *testing.T) {
 	// 第2章重复与孤立数字53均被合并或清除，最终应为3章
 	if len(book.SectionList) != 3 {
 		t.Errorf("expected 3 chapters after auto dedup, got %d", len(book.SectionList))
+	}
+}
+
+func TestParseMushroomExampleBookChapters(t *testing.T) {
+	txtPath := filepath.Join("..", "..", "examples", "《这个地下城长蘑菇了》作者：生吃菌子.txt")
+	if _, err := os.Stat(txtPath); err != nil {
+		t.Skipf("example book not available: %v", err)
+	}
+
+	book := &Book{
+		Filename:        txtPath,
+		DedupTitle:      true,
+		NormalizeQuotes: true,
+		Tips:            false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	t.Logf("sectionCount=%d, len=%d", sectionCount(book.SectionList), len(book.SectionList))
+	for i := 0; i < len(book.SectionList) && i < 15; i++ {
+		t.Logf("section[%d] = %q", i, book.SectionList[i].Title)
+	}
+	for i := len(book.SectionList) - 10; i >= 0 && i < len(book.SectionList); i++ {
+		t.Logf("section[last-%d] = %q", len(book.SectionList)-i, book.SectionList[i].Title)
+	}
+	// 验证总章节数在 800 章以上（全书前 87 章以及后 700 多章全部被识别）
+	if len(book.SectionList) < 800 {
+		t.Fatalf("expected at least 800 chapters, got %d", len(book.SectionList))
+	}
+
+	// 验证前两章正常识别为「1.变成蘑菇的公爵千金」和「2.蘑菇园来了个外乡菇」
+	firstTitle := book.SectionList[0].Title
+	if !strings.Contains(firstTitle, "1.变成蘑菇的公爵千金") {
+		t.Fatalf("expected first chapter to be '1.变成蘑菇的公爵千金', got %q", firstTitle)
+	}
+	secondTitle := book.SectionList[1].Title
+	if !strings.Contains(secondTitle, "2.蘑菇园来了个外乡菇") {
+		t.Fatalf("expected second chapter to be '2.蘑菇园来了个外乡菇', got %q", secondTitle)
+	}
+
+	// 验证第 87 章与第 88 章正确衔接
+	var found87, found88 bool
+	for _, sec := range book.SectionList {
+		if strings.Contains(sec.Title, "87.同类的气息") {
+			found87 = true
+		}
+		if strings.Contains(sec.Title, "第88章 88原来没人管我啊！") {
+			found88 = true
+			if strings.Contains(sec.Title, "求首订") {
+				t.Errorf("chapter title trailing paren noise not cleaned: %q", sec.Title)
+			}
+		}
+	}
+	if !found87 {
+		t.Error("expected chapter '87.同类的气息' to be recognized in section list")
+	}
+	if !found88 {
+		t.Error("expected chapter '第88章 88原来没人管我啊！' to be recognized in section list")
+	}
+}
+
+func TestNumericDotChapterPatternAndRankedListProtection(t *testing.T) {
+	dir := t.TempDir()
+	txtPath := filepath.Join(dir, "numeric_test.txt")
+	content := strings.Join([]string{
+		"1.变成蘑菇的公爵千金",
+		"　　第一章正文内容，公爵千金被变成了蘑菇。",
+		"　　这里有详细的描写，字数充裕。",
+		"2.蘑菇园来了个外乡菇",
+		"　　第二章正文内容，外乡菇进入了蘑菇园。",
+		"　　【世界排行榜：",
+		"1、苏明安（战力：550）（第一玩家）/职业：白审",
+		"2、诺尔（战力：650）/职业：傀儡师",
+		"……】",
+		"　　正文继续，苏明安看着排行榜思索片刻。",
+		"3.最终的对决",
+		"　　第三章正文内容，迎来终章。",
+	}, "\n")
+	if err := os.WriteFile(txtPath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	book := &Book{
+		Filename:   txtPath,
+		DedupTitle: true,
+		Tips:       false,
+	}
+	book.SetDefault()
+	if err := book.Check("test-version"); err != nil {
+		t.Fatalf("unexpected check error: %v", err)
+	}
+	if err := book.Parse(); err != nil {
+		t.Fatalf("unexpected parse error: %v", err)
+	}
+
+	// 期望识别为 3 个真实章节，且正文列表项被保留在第 2 章正文中，未被切分为独立章节
+	if len(book.SectionList) != 3 {
+		t.Fatalf("expected 3 chapters, got %d", len(book.SectionList))
+	}
+	if !strings.Contains(book.SectionList[0].Title, "1.变成蘑菇的公爵千金") {
+		t.Errorf("unexpected first title: %q", book.SectionList[0].Title)
+	}
+	if !strings.Contains(book.SectionList[1].Title, "2.蘑菇园来了个外乡菇") {
+		t.Errorf("unexpected second title: %q", book.SectionList[1].Title)
+	}
+	if !strings.Contains(book.SectionList[2].Title, "3.最终的对决") {
+		t.Errorf("unexpected third title: %q", book.SectionList[2].Title)
+	}
+	if !strings.Contains(book.SectionList[1].Content, "1、苏明安（战力：550）") {
+		t.Errorf("ranked list should remain in chapter 2 content: %q", book.SectionList[1].Content)
 	}
 }

@@ -164,3 +164,43 @@ func TestDetectStructureSuspectsChineseOrdinalJump(t *testing.T) {
 		t.Fatalf("expected reason to include 章号跳号, got %+v", ranges)
 	}
 }
+
+func TestDetectStructureSuspectsNumericDotChapters(t *testing.T) {
+	// 连续规范的数字章节不应该报错
+	var cleanEntries []structureEntry
+	for i := 1; i <= 87; i++ {
+		cleanEntries = append(cleanEntries, structureEntry{
+			Title:     fmt.Sprintf("%d.章节标题", i),
+			Empty:     false,
+			CharCount: 2000,
+		})
+	}
+	cleanEntries = append(cleanEntries, structureEntry{
+		Title:     "第88章 88原来没人管我啊！",
+		Empty:     false,
+		CharCount: 2000,
+	})
+	if len(detectStructureSuspects(cleanEntries)) != 0 {
+		t.Fatal("clean numeric-dot chapter sequence should have no suspects")
+	}
+
+	// 数字章节跳号应被检出
+	jumpEntries := []structureEntry{
+		{Title: "87.同类的气息", Empty: false, CharCount: 2000},
+		{Title: "第90章 跨步过大", Empty: false, CharCount: 2000},
+	}
+	jumpRanges := detectStructureSuspects(jumpEntries)
+	if len(jumpRanges) == 0 {
+		t.Fatal("expected suspect range for jump from 87 to 90")
+	}
+
+	// 首节若为未拆分的庞大正文应被检出
+	bloatedEntries := []structureEntry{
+		{Title: "章节正文", Empty: false, CharCount: 50000},
+		{Title: "第88章 原来没人管我啊！", Empty: false, CharCount: 2000},
+	}
+	bloatedRanges := detectStructureSuspects(bloatedEntries)
+	if len(bloatedRanges) == 0 {
+		t.Fatal("expected suspect range for bloated first preface section")
+	}
+}

@@ -24,9 +24,12 @@ const (
 )
 
 var (
-	chapterNumRe      = regexp.MustCompile(`第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
-	urlInTitleRe      = regexp.MustCompile(`(?i)(https?://|www\.)`)
-	pureDigitsTitleRe = regexp.MustCompile(`^\d{1,6}$`)
+	chapterNumRe           = regexp.MustCompile(`第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
+	chapterPlainNumRe      = regexp.MustCompile(`^([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
+	chapterDotNumRe        = regexp.MustCompile(`^([0-9]{1,6})[\.．、\s]`)
+	chapterChineseDotNumRe = regexp.MustCompile(`^([一二三四五六七八九十百千两]{1,6})[、\.．]`)
+	urlInTitleRe           = regexp.MustCompile(`(?i)(https?://|www\.)`)
+	pureDigitsTitleRe      = regexp.MustCompile(`^\d{1,6}$`)
 )
 
 // titleWatermarkKeywords 采集站/广告常见水印词。
@@ -136,8 +139,11 @@ func detectStructureSuspects(entries []structureEntry) []suspectRange {
 		if looksLikeGarbageTitle(title) {
 			flags[i] = append(flags[i], "标题乱码/符号异常")
 		}
-		if e.Empty && chapterNumRe.MatchString(title) {
+		if e.Empty && chapterKeySimple(title) != "" {
 			flags[i] = append(flags[i], "无正文目录行")
+		}
+		if (title == "章节正文" || title == "正文") && e.CharCount > 2000 && i == 0 && n > 1 {
+			flags[i] = append(flags[i], "首节包含巨量正文疑似未拆分")
 		}
 		// 基于上下文的疑点增强判断
 		if pureDigitsTitleRe.MatchString(title) {
@@ -146,7 +152,7 @@ func detectStructureSuspects(entries []structureEntry) []suspectRange {
 		if !e.Empty && e.CharCount > 0 && e.CharCount < 50 && !isIntroOrOutroTitle(title) {
 			flags[i] = append(flags[i], "正文极短疑似切分碎片")
 		}
-		if (strings.HasPrefix(title, "「") || strings.HasPrefix(title, "“") || strings.HasPrefix(title, "”") || strings.HasPrefix(title, "」")) && !chapterNumRe.MatchString(title) {
+		if (strings.HasPrefix(title, "「") || strings.HasPrefix(title, "“") || strings.HasPrefix(title, "”") || strings.HasPrefix(title, "」")) && chapterKeySimple(title) == "" {
 			flags[i] = append(flags[i], "对话引号开头疑似正文行")
 		}
 		if strings.HasSuffix(title, "，") || strings.HasSuffix(title, ",") || strings.HasSuffix(title, "。") {
@@ -190,9 +196,12 @@ func titleWatermarkReason(title string) string {
 }
 
 func chapterKeySimple(title string) string {
-	m := chapterNumRe.FindStringSubmatch(title)
-	if len(m) >= 2 {
-		return m[1]
+	title = strings.TrimSpace(title)
+	for _, re := range []*regexp.Regexp{chapterNumRe, chapterPlainNumRe, chapterDotNumRe, chapterChineseDotNumRe} {
+		m := re.FindStringSubmatch(title)
+		if len(m) >= 2 {
+			return m[1]
+		}
 	}
 	return ""
 }

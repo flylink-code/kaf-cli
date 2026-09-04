@@ -89,7 +89,7 @@ const (
 	mobiTtmlTitleStart = `<h3 style="text-align:%s;">`
 	htmlTitleEnd       = "</h3>"
 	VolumeMatch        = "^第[0-9一二三四五六七八九十零〇百千两 ]+卷"
-	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷].*|^[零〇一二三四五六七八九十百千两0-9]{1,12}[章回节集卷]·.*|^[Ss]ection.{1,20}$|^[Cc]hapter.{1,20}$|^[Pp]age.{1,20}$|^\\d{1,4}$|^引子.*|^楔子.*|^章节目录$|^章节$|^序章.*|^上架感言.*|^完本感言.*|^番外.*|^后记.*|^尾声.*"
+	DefaultMatchTips   = "^第[0-9一二三四五六七八九十零〇百千两 ]+[章回节集卷].*|^[零〇一二三四五六七八九十百千两0-9]{1,12}[章回节集卷]·.*|^[0-9]{1,5}[\\.．、\\s]\\S+.*|^[一二三四五六七八九十百千两]{1,6}[、\\.．]\\S+.*|^[Ss]ection.{1,20}|^[Cc]hapter.{1,20}|^[Pp]age.{1,20}|^\\d{1,4}|^引子.*|^楔子.*|^章节目录$|^章节$|^序章.*|^上架感言.*|^完本感言.*|^番外.*|^后记.*|^尾声.*"
 	cssContent         = `
 .title {text-align:%s}
 .content {
@@ -156,6 +156,7 @@ func (book *Book) SetDefault() {
 	book.Bottom = defaultString(book.Bottom, "1em")
 	book.Lang = defaultString(book.Lang, GetEnv("KAF_CLI_LANG", "zh"))
 	book.Format = defaultString(book.Format, GetEnv("KAF_CLI_FORMAT", "all"))
+	book.DedupTitle = defaultBool(book.DedupTitle, true)
 }
 func (book *Book) Check(version string) error {
 	book.version = version
@@ -237,32 +238,32 @@ func (book *Book) usageError() error {
 }
 
 func (book *Book) openTextReader(filename string) (io.ReadCloser, error) {
-	f, err := os.Open(filename)
+	bs, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("读取文件出错: %w", err)
-	}
-	temBuf := bufio.NewReader(f)
-	bs, _ := temBuf.Peek(1024)
-	encodig, encodename, _ := charset.DetermineEncoding(bs, "text/plain")
-	if _, err := f.Seek(0, 0); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("读取文件出错: %w", err)
-	}
-	if encodename == "utf-8" {
-		return f, nil
 	}
 
-	bs, err = io.ReadAll(f)
-	closeErr := f.Close()
-	if err != nil {
-		return nil, fmt.Errorf("读取文件出错: %w", err)
+	// 1. 处理 UTF-8 BOM
+	if bytes.HasPrefix(bs, []byte("\xef\xbb\xbf")) {
+		bs = bytes.TrimPrefix(bs, []byte("\xef\xbb\xbf"))
+		return io.NopCloser(bytes.NewReader(bs)), nil
 	}
-	if closeErr != nil {
-		return nil, fmt.Errorf("关闭文件出错: %w", closeErr)
+
+	// 2. 检查是否为合法 UTF-8 编码
+	// 若内容完全符合 UTF-8 规范，直接作为 UTF-8 读取，避免被 charset.DetermineEncoding 误判为 windows-1252 进而错转为 GB18030 导致全篇乱码
+	if utf8.Valid(bs) {
+		return io.NopCloser(bytes.NewReader(bs)), nil
 	}
+
+	// 3. 非合法 UTF-8，检测其他编码（GB18030/GBK/Big5 等）并转码
+	sampleSize := len(bs)
+	if sampleSize > 4096 {
+		sampleSize = 4096
+	}
+	encodig, encodename, _ := charset.DetermineEncoding(bs[:sampleSize], "text/plain")
 
 	book.Decoder = encodig.NewDecoder()
-	if encodename == "windows-1252" {
+	if encodename == "windows-1252" || encodename == "" {
 		book.Decoder = simplifiedchinese.GB18030.NewDecoder()
 	}
 	bs, _, err = transform.Bytes(book.Decoder, bs)
@@ -414,6 +415,7 @@ func (book *Book) Parse() error {
 		contentList = dedupTitleSections(contentList)
 		contentList = dedupRepeatedSections(contentList)
 		contentList = mergeIsolatedDigitSections(contentList)
+		contentList = mergeIsolatedListSections(contentList)
 		if diff := beforeLen - len(contentList); diff > 0 {
 			fmt.Printf("智能目录去重: 已自动合并/清理 %d 处重复或误切分章节\n", diff)
 		}
@@ -577,15 +579,19 @@ func hasDuplicateOrIsolatedSections(sections []Section) bool {
 	}
 	stdCount := 0
 	digitCount := 0
+	listCount := 0
 	for _, sec := range sections {
-		if chapterKeyReg.MatchString(sec.Title) || chapterDualKeyReg.MatchString(sec.Title) ||
-			strings.HasPrefix(strings.ToLower(sec.Title), "chapter") {
+		trimTitle := strings.TrimSpace(sec.Title)
+		if chapterKeyReg.MatchString(trimTitle) || chapterDualKeyReg.MatchString(trimTitle) ||
+			strings.HasPrefix(strings.ToLower(trimTitle), "chapter") {
 			stdCount++
-		} else if pureDigitTitleRegex.MatchString(strings.TrimSpace(sec.Title)) {
+		} else if pureDigitTitleRegex.MatchString(trimTitle) {
 			digitCount++
+		} else if numericListTitleRe.MatchString(trimTitle) && plainContentRuneCount(sec.Content) < 150 {
+			listCount++
 		}
 	}
-	if stdCount >= 3 && digitCount > 0 && float64(stdCount)/float64(len(sections)) >= 0.6 {
+	if stdCount >= 3 && (digitCount > 0 || listCount > 0) && float64(stdCount)/float64(len(sections)) >= 0.6 {
 		return true
 	}
 	return false

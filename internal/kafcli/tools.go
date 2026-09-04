@@ -19,21 +19,25 @@ import (
 )
 
 var (
-	chapterDualKeyReg   = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+[章回节集卷]\s*([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
-	chapterKeyReg       = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
-	chapterPlainKeyReg  = regexp.MustCompile(`^([0-9一二三四五六七八九十零〇百千两]+)[章回节集卷]`)
-	filenameMetaReg     = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt`)
-	partDivisionLabelRe = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+部$`)
-	roundLabelRe        = regexp.MustCompile(`^(第?[0-9一二三四五六七八九十零〇百千两]+回合|【?第?[0-9一二三四五六七八九十零〇百千两]+回合结束|【?双方行棋，第?[0-9一二三四五六七八九十零〇百千两]+回合)`)
+	chapterDualKeyReg       = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+[章回节集]\s*([0-9一二三四五六七八九十零〇百千两]+)[章回节集]`)
+	chapterKeyReg           = regexp.MustCompile(`^第([0-9一二三四五六七八九十零〇百千两]+)[章回节集]`)
+	chapterPlainKeyReg      = regexp.MustCompile(`^([0-9一二三四五六七八九十零〇百千两]+)[章回节集]`)
+	chapterDotKeyReg        = regexp.MustCompile(`^([0-9]{1,6})[\.．、\s]`)
+	chapterChineseDotKeyReg = regexp.MustCompile(`^([一二三四五六七八九十百千两]{1,6})[、\.．]`)
+	numericListTitleRe      = regexp.MustCompile(`^(?:[0-9]{1,6}[\.．、\s]|[一二三四五六七八九十百千两]{1,6}[、\.．])`)
+	filenameMetaReg         = regexp.MustCompile(`《(.*)》.*作者[：:](.*)\.txt`)
+	partDivisionLabelRe     = regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+部$`)
+	roundLabelRe            = regexp.MustCompile(`^(第?[0-9一二三四五六七八九十零〇百千两]+回合|【?第?[0-9一二三四五六七八九十零〇百千两]+回合结束|【?双方行棋，第?[0-9一二三四五六七八九十零〇百千两]+回合)`)
 
 	falsePositiveOrdinalRegs = []*regexp.Regexp{
 		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+节课`),
 		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章·`),
 		regexp.MustCompile(`^第[0-9一二三四五六七八九十零〇百千两]+章[^「“『"‘【\[\(（《<〔〈\s　\t：:、，,\-—–~～\.．！!？?]`),
+		regexp.MustCompile(`^(?:[0-9]{1,6}[\.．、\s]|[一二三四五六七八九十百千两]{1,6}[、\.．]).*(?:[：:]|战力|职业|等级|生命值|属性|[+=])`),
 	}
 
-	titleTrailingParenRegex     = regexp.MustCompile(`\s*[(（][^()（）]*(?:字|更|月票|求票|求追读|求收藏|求推荐|求订阅|求支持|打赏|加更|补更|二合一|[pP][kK])[^()（）]*[)）]?\s*$`)
-	titleTrailingWordCountRegex = regexp.MustCompile(`\s*[(（]\s*[0-9一二两三四五六七八九十百千]{2,6}\s*(?:字)?\s*[)）]?\s*$`)
+	titleTrailingParenRegex     = regexp.MustCompile(`\s*[(（][^()（）]*(?:字|更|月票|求票|求追读|求收藏|求推荐|求订阅|求支持|求首订|首订|打赏|加更|补更|二合一|[pP][kK])[^()（）]*[)）]?\s*`)
+	titleTrailingWordCountRegex = regexp.MustCompile(`\s*[(（]\s*[0-9一二两三四五六七八九十百千]{2,6}\s*(?:字)?\s*[)）]?\s*`)
 )
 
 // cleanChapterTitle 清理章节标题尾部的作话、字数统计、求月票等杂质。
@@ -114,7 +118,7 @@ func resolveOutputPath(txtPath, out string) string {
 	return filepath.Join(filepath.Dir(txtPath), filepath.Base(out))
 }
 
-// resolveCoverPath 尝试解析封面路径；默认封面支持 cover.png / cover.jpg / cover.jpeg。
+// resolveCoverPath 尝试解析封面路径；默认封面支持 cover.png / cover.jpg / cover.jpeg / cover.webp。
 func resolveCoverPath(txtPath, cover string) string {
 	cover = strings.TrimSpace(cover)
 	if cover == "" {
@@ -122,14 +126,24 @@ func resolveCoverPath(txtPath, cover string) string {
 	}
 	candidates := []string{cover}
 	if cover == "cover.png" {
-		candidates = []string{"cover.png", "cover.jpg", "cover.jpeg"}
+		candidates = []string{"cover.png", "cover.jpg", "cover.jpeg", "cover.webp"}
 	}
 
 	baseDir := filepath.Dir(txtPath)
 	for _, candidate := range candidates {
 		path := candidate
 		if !filepath.IsAbs(path) {
-			path = filepath.Join(baseDir, path)
+			relPath := filepath.Join(baseDir, path)
+			if exists, _ := isExists(relPath); exists {
+				return relPath
+			}
+			if exists, _ := isExists(path); exists {
+				if abs, err := filepath.Abs(path); err == nil {
+					return abs
+				}
+				return path
+			}
+			continue
 		}
 		if exists, _ := isExists(path); exists {
 			return path
@@ -404,7 +418,7 @@ func normalizeChapterOrdinal(raw string) string {
 
 func chapterKey(title string) string {
 	title = strings.TrimSpace(title)
-	for _, re := range []*regexp.Regexp{chapterDualKeyReg, chapterKeyReg, chapterPlainKeyReg} {
+	for _, re := range []*regexp.Regexp{chapterDualKeyReg, chapterKeyReg, chapterPlainKeyReg, chapterDotKeyReg, chapterChineseDotKeyReg} {
 		m := re.FindStringSubmatch(title)
 		if len(m) >= 2 {
 			return normalizeChapterOrdinal(m[1])
@@ -481,6 +495,93 @@ func mergeIsolatedDigitSections(sections []Section) []Section {
 			}
 			merged[lastIdx].Content = sb.String()
 			continue
+		}
+		merged = append(merged, sec)
+	}
+	return merged
+}
+
+func plainContentRuneCount(content string) int {
+	count := 0
+	inTag := false
+	for _, r := range content {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag && !unicode.IsSpace(r) {
+			count++
+		}
+	}
+	return count
+}
+
+// mergeIsolatedListSections 合并正文中因数字列表（排行榜、属性列表、任务清单等）被误切为独立章节的小节。
+func mergeIsolatedListSections(sections []Section) []Section {
+	if len(sections) <= 2 {
+		return sections
+	}
+	standardChapterCount := 0
+	for _, sec := range sections {
+		if chapterKeyReg.MatchString(sec.Title) || chapterDualKeyReg.MatchString(sec.Title) ||
+			strings.HasPrefix(strings.ToLower(sec.Title), "chapter") {
+			standardChapterCount++
+		}
+	}
+	majorityStandard := standardChapterCount >= 3 && float64(standardChapterCount)/float64(len(sections)) >= 0.6
+
+	var merged []Section
+	for _, sec := range sections {
+		trimTitle := strings.TrimSpace(sec.Title)
+		if numericListTitleRe.MatchString(trimTitle) && len(merged) > 0 {
+			runeLen := plainContentRuneCount(sec.Content)
+			shouldMerge := false
+
+			// 1. 包含明显属性、等级、战力、职业等清单特征且字数极短
+			if runeLen < 150 {
+				for _, kw := range []string{"：", ":", "战力", "职业", "等级", "完美通关", "身份", "排行榜", "得分", "属性", "技能", "+", "="} {
+					if strings.Contains(trimTitle, kw) {
+						shouldMerge = true
+						break
+					}
+				}
+			}
+
+			// 2. 全书绝大多数为规范「第X章」，正文中间突发的短数字小节
+			if !shouldMerge && majorityStandard && runeLen < 100 {
+				prevKey := chapterKey(merged[len(merged)-1].Title)
+				currKey := chapterKey(trimTitle)
+				if prevKey != "" && currKey != "" {
+					prevNum, err1 := strconv.Atoi(prevKey)
+					currNum, err2 := strconv.Atoi(currKey)
+					if err1 == nil && err2 == nil && prevNum > 10 && currNum <= 5 {
+						shouldMerge = true
+					}
+				}
+				if !shouldMerge && runeLen < 30 {
+					shouldMerge = true
+				}
+			}
+
+			if shouldMerge {
+				lastIdx := len(merged) - 1
+				var sb strings.Builder
+				sb.WriteString(merged[lastIdx].Content)
+				if sb.Len() > 0 && !strings.HasSuffix(sb.String(), "\n") {
+					sb.WriteString("\n")
+				}
+				sb.WriteString(fmt.Sprintf(`<p class="content">%s</p>`, trimTitle))
+				sb.WriteString("\n")
+				if sec.Content != "" {
+					sb.WriteString(sec.Content)
+				}
+				merged[lastIdx].Content = sb.String()
+				continue
+			}
 		}
 		merged = append(merged, sec)
 	}
@@ -729,7 +830,11 @@ func contentsLikelyRepeated(a, b string) bool {
 				continue
 			}
 			if shorter <= 80 {
-				if prefix >= 20 && float64(prefix)/float64(shorter) >= 0.85 {
+				minPrefix := 20
+				if shorter < 20 {
+					minPrefix = shorter
+				}
+				if prefix >= minPrefix && float64(prefix)/float64(shorter) >= 0.85 {
 					return true
 				}
 				continue

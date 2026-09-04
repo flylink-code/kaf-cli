@@ -3,10 +3,12 @@ package kafcli
 import (
 	"bytes"
 	"fmt"
-	"github.com/bmaupin/go-epub"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/bmaupin/go-epub"
 )
 
 type EpubConverter struct{}
@@ -74,7 +76,11 @@ font-family: "embedfont";
 	}
 
 	if book.Cover != "" {
-		img, err := e.AddImage(book.Cover, filepath.Base(book.Cover))
+		coverExt := strings.ToLower(filepath.Ext(book.Cover))
+		if coverExt == "" {
+			coverExt = ".png"
+		}
+		img, err := e.AddImage(book.Cover, "cover"+coverExt)
 		if err != nil {
 			return fmt.Errorf("添加封面失败: %w", err)
 		}
